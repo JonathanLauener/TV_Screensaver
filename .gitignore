@@ -1,0 +1,13 @@
+# Build output
+build/
+*.apk
+*.idsig
+
+# Signing key: secret, and needed for every future update. Back it up, never commit it.
+keystore/
+
+# Per-device settings saved by install.sh for undo.sh
+.previous/
+
+# The video is bundled at build time from ~/screensaver.webm (see build.sh)
+*.webm
