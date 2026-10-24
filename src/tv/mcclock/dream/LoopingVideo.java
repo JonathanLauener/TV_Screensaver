@@ -15,6 +15,8 @@ import android.view.Surface;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -32,7 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 final class LoopingVideo implements Runnable {
 
     interface Listener {
-        /** Called on the main thread once the first frame has been sent to the screen. */
+        /**
+         * Called on the main thread once the first frame has been sent to the screen, and again
+         * after each {@link #setSurface} once the first frame has gone to the new surface.
+         */
         void onFirstFrame(LoopingVideo source);
 
         /** Called on the main thread if decoding fails; the player has stopped. */
@@ -52,7 +57,10 @@ final class LoopingVideo implements Runnable {
     private static final long STATS_EVERY_MS = 60_000;
 
     private final AssetFileDescriptor source;
-    private final Surface surface;
+    private volatile Surface surface;      // where frames go now
+    private volatile Surface switchTo;     // set by setSurface(), applied by the decode thread
+    private volatile CountDownLatch switched;
+    private volatile boolean switchOk;
     private final Listener listener;
     private final Vsync vsync;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -73,6 +81,32 @@ final class LoopingVideo implements Runnable {
         vsync.start();
         thread = new Thread(this, "McClock-video");
         thread.start();
+    }
+
+    Surface surface() {
+        return surface;
+    }
+
+    /**
+     * Main thread. Moves the picture to another surface without restarting, so it carries on
+     * from the same frame. Returns false if the decoder couldn't switch in time; it is then
+     * still drawing to the old surface.
+     */
+    boolean setSurface(Surface target, long timeoutMs) {
+        if (target == surface) return true;
+        CountDownLatch done = new CountDownLatch(1);
+        switched = done;
+        switchTo = target;
+        try {
+            if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                switchTo = null;
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return switchOk;
     }
 
     /** Main thread. Stops decoding and waits until the decoder has let go of the surface. */
@@ -195,6 +229,23 @@ final class LoopingVideo implements Runnable {
         long statsSinceMs = SystemClock.elapsedRealtime();
 
         while (running) {
+            Surface target = switchTo;
+            if (target != null) {
+                switchTo = null;
+                try {
+                    codec.setOutputSurface(target);
+                    codec.setVideoScalingMode(
+                            MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                    surface = target;
+                    switchOk = true;
+                    first = true;  // announce the first frame on the new surface
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "cannot move the video to another surface", e);
+                    switchOk = false;
+                }
+                switched.countDown();
+            }
+
             // Keep the decoder fed with everything it will take.
             int in;
             while ((in = codec.dequeueInputBuffer(0)) >= 0) {
