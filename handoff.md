@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 01:25_
+_Last updated: 2026-10-25 01:35_
 
 ## Goal
 
@@ -16,6 +16,14 @@ looping seamlessly, with the time in Minecraft's font on top.
    - Screensaver -> home (any key, or HOME): the clock slides up, the apps slide up from below.
    - If the screensaver started from the home screen, any key goes back to the home screen.
 3. All code goes to GitHub: `JonathanLauener/TV_Screensaver` (empty at first push).
+4. **Requirement (from the user): the UI must be decoupled from the background renderer.**
+   The clock, home screen, app rows, idle mode and all transitions must not depend on what
+   draws the background. The background has to be swappable: another video, a still image,
+   or a different renderer later, without touching the UI code. Design it as a background
+   interface (e.g. `Background` with attach(surface or view)/detach, first-frame callback),
+   with the current looping video (`VideoEngine` + `LoopingVideo`) as one implementation,
+   picked by a setting or a build option. The screensaver -> home hand-over works by
+   handing the *background* over, not "the video".
 
 ## Devices and access
 
@@ -98,8 +106,24 @@ Same APK and process as the dream, so both can share one decoder.
 - Make it the default home: `cmd package set-home-activity tv.mcclock.dream/.HomeActivity`.
   The undo restores `com.ansub.tvhome/.MainActivity`.
 
+## Current state (01:35)
+
+Written and compiling (`./build.sh` OK) but NOT tested and NOT committed yet:
+`Glyphs.java` (151 glyphs generated from Monocraft), `PixelText.java`, `VideoEngine.java`,
+`Handover.java`, `HomeActivity.java`, `AppTile.java`, `McButton.java`, the new
+`ClockDream.java` (uses VideoEngine, onWakeUp hand-over, no exit animation), surface
+switching in `LoopingVideo.setSurface()`, manifest (HOME activity + `<queries>`),
+`res/values/styles.xml` (no-animation theme), `assets/home_apps.txt`, and install/undo
+setting/restoring the home activity (`.previous/<device>.home`).
+The TV still runs the shipped screensaver-only build (commit 7dc3eb2); its home is still
+tv-detox. The emulator stopped responding during the first install ("waiting for device").
+
 ## Next steps
 
-1. Write VideoEngine + HomeActivity + PixelText (full glyph table extracted from Monocraft).
-2. Test on the emulator, then the TV (record the dream->home handover with screenrecord).
+1. Refactor to the background interface (requirement 4) before going further: VideoEngine
+   becomes the video `Background`; HomeActivity/ClockDream only talk to the interface.
+2. Test on the emulator (restart it if needed), then the TV: home layout, idle -> ambient
+   after `screen_off_timeout`, any key -> home, HOME from the screensaver over another app
+   (record with `adb shell screenrecord` to check the hand-over has no black or app flash).
+   Check that `MediaCodec.setOutputSurface` works on the MTK decoder.
 3. Review workflow, fix, commit and push, update this file.

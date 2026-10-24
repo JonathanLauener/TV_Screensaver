@@ -15,6 +15,13 @@ DEVICE=emulator-5554 ./install.sh  # the local Android TV emulator instead
 The TV starts it after 5 minutes without a remote press, or from
 Settings > Device Preferences > Screen saver > Start now. Any button leaves it.
 
+## Design rule: the background is swappable
+
+The clock, the home screen and all the transitions are kept separate from whatever draws the
+background. The looping video is one background; it can be replaced (another video, a still
+image, or a different renderer) without changing the UI code. The screensaver hands its
+running background over to the home screen, so the switch between them has no visible cut.
+
 ## How it works
 
 - **Video** (`LoopingVideo`): decoded with MediaCodec straight into a SurfaceView, so the
