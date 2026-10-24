@@ -1,6 +1,6 @@
 # Minecraft Clock screensaver
 
-An Android TV screensaver (a `DreamService`) for the Sony BRAVIA at 192.168.178.23.
+An Android TV screensaver (a `DreamService`) for the Sony BRAVIA.
 It plays `~/screensaver.webm` on a seamless loop, with the time centred on top in
 Minecraft's font and Minecraft's text shadow.
 
