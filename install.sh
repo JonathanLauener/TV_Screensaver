@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds and installs the screensaver and makes it the active one.
+# Builds and installs the app, and makes it the screensaver and the home screen.
 #   ./install.sh               the TV (192.168.178.23)
 #   ./install.sh --now         ...and start it right away to have a look
 #   DEVICE=emulator-5554 ./install.sh --now
@@ -10,6 +10,7 @@ DEVICE=${DEVICE:-192.168.178.23}
 [[ "$DEVICE" == emulator-* || "$DEVICE" == *:* ]] || DEVICE=$DEVICE:5555
 ADB=${ADB:-$HOME/platform-tools/adb}
 COMPONENT=tv.mcclock.dream/.ClockDream
+HOME_ACTIVITY=tv.mcclock.dream/.HomeActivity
 APK=MinecraftClock.apk
 adb() { "$ADB" -s "$DEVICE" "$@"; }
 setting() { adb shell settings get secure "$1" | tr -d '\r'; }
@@ -33,10 +34,18 @@ fi
 if grep -qE 'mCurrentDream(Name)?=.*tv\.mcclock\.dream' <<<"$(adb shell dumpsys dreams)"; then
   adb shell input keyevent KEYCODE_WAKEUP
 fi
+home=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN \
+  -c android.intent.category.HOME | tr -d '\r' | tail -1)
+if [[ "$home" == */* && "$home" != "$HOME_ACTIVITY" ]]; then
+  echo "$home" > ".previous/$DEVICE.home"
+fi
+
 adb install -r "$APK"
 adb shell settings put secure screensaver_components "$COMPONENT"
 adb shell settings put secure screensaver_enabled 1
+adb shell cmd package set-home-activity "$HOME_ACTIVITY" >/dev/null
 echo "Screensaver: $(setting screensaver_components)"
+echo "Home screen: $HOME_ACTIVITY (was: $(cat ".previous/$DEVICE.home" 2>/dev/null || echo unknown))"
 
 if [[ "${1:-}" == --now ]]; then
   if (( $(adb shell getprop ro.build.version.sdk | tr -d '\r') >= 33 )); then

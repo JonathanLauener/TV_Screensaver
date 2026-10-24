@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">Minecraft Clock</string>
     <string name="dream_name">Minecraft Clock</string>
+    <string name="home_name">Minecraft Home</string>
 </resources>

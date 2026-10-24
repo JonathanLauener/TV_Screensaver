@@ -1,0 +1,10 @@
+# The apps on the home screen, in order. One package name per line.
+# Apps that aren't installed are skipped. Rebuild and install to apply (./install.sh).
+com.netflix.ninja
+com.google.android.youtube.tv
+com.disney.disneyplus
+com.amazon.amazonvideo.livingroom
+com.spotify.tv.android
+com.nbaimd.gametime.nba2011
+com.tcl.browser
+ch.protonvpn.android

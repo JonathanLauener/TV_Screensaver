@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 01:35_
+_Last updated: 2026-10-25 01:40_
 
 ## Goal
 
@@ -108,7 +108,8 @@ Same APK and process as the dream, so both can share one decoder.
 
 ## Current state (01:35)
 
-Written and compiling (`./build.sh` OK) but NOT tested and NOT committed yet:
+Written and compiling (`./build.sh` OK) but NOT tested; committed on branch `home-screen`
+(`main` = the shipped screensaver):
 `Glyphs.java` (151 glyphs generated from Monocraft), `PixelText.java`, `VideoEngine.java`,
 `Handover.java`, `HomeActivity.java`, `AppTile.java`, `McButton.java`, the new
 `ClockDream.java` (uses VideoEngine, onWakeUp hand-over, no exit animation), surface

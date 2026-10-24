@@ -19,36 +19,19 @@ import java.util.Locale;
  * The time in Minecraft's font, centred, with Minecraft's own text shadow: the same text in
  * #3F3F3F (a quarter of white), one font pixel right and down.
  *
- * The glyphs are Minecraft's 5 x 7 digits and its 1-pixel colon (as recreated in the
- * OFL-licensed Monocraft font), drawn as k x k squares with Minecraft's 1-pixel letter spacing,
- * so every font pixel is exactly the same size.
+ * The glyphs are Minecraft's 5 x 7 digits and its 1-pixel colon ({@link PixelText}), drawn as
+ * k x k squares, so every font pixel is exactly the same size.
  */
 final class PixelClockView extends View {
 
     /** One font pixel is this many screen pixels on a 1080-pixel-tall screen. */
     private static final float FONT_PIXELS_AT_1080P = 18f;
-    private static final int ROWS = 7;
-    private static final int SHADOW = 0xFF3F3F3F;
     /**
      * Burn-in care for OLED panels: each minute the clock steps through these offsets, in half
      * font pixels (9 px at 1080p), so it never sits on exactly the same pixels for long.
      */
     private static final int[][] DRIFT = {
             {0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}};
-
-    private static final String[][] DIGITS = {
-            {".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."},
-            {"..#..", ".##..", "..#..", "..#..", "..#..", "..#..", "#####"},
-            {".###.", "#...#", "....#", "..##.", ".#...", "#...#", "#####"},
-            {".###.", "#...#", "....#", "..##.", "....#", "#...#", ".###."},
-            {"...##", "..#.#", ".#..#", "#...#", "#####", "....#", "....#"},
-            {"#####", "#....", "####.", "....#", "....#", "#...#", ".###."},
-            {"..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."},
-            {"#####", "#...#", "....#", "...#.", "..#..", "..#..", "..#.."},
-            {".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."},
-            {".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."},
-    };
-    private static final String[] COLON = {".", ".", "#", ".", ".", ".", "#"};
 
     private final Paint paint = new Paint();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -114,40 +97,12 @@ final class PixelClockView extends View {
         dy = step[1] * half;
     }
 
-    private static String[] glyph(char c) {
-        if (c >= '0' && c <= '9') return DIGITS[c - '0'];
-        return c == ':' ? COLON : null;
-    }
-
     @Override
     protected void onDraw(Canvas canvas) {
-        int columns = -1;  // no spacing after the last glyph
-        for (int i = 0; i < text.length(); i++) {
-            String[] g = glyph(text.charAt(i));
-            if (g != null) columns += g[0].length() + 1;
-        }
-        if (columns <= 0) return;
+        if (text.isEmpty()) return;
         int k = fontPixel;
-        int x = (getWidth() - columns * k) / 2 + dx;
-        int y = (getHeight() - ROWS * k) / 2 + dy;
-        paint.setColor(SHADOW);
-        drawText(canvas, x + k, y + k, k);
-        paint.setColor(Color.WHITE);
-        drawText(canvas, x, y, k);
-    }
-
-    private void drawText(Canvas canvas, int x, int y, int k) {
-        for (int i = 0; i < text.length(); i++) {
-            String[] g = glyph(text.charAt(i));
-            if (g == null) continue;
-            for (int row = 0; row < ROWS; row++) {
-                for (int col = 0; col < g[row].length(); col++) {
-                    if (g[row].charAt(col) != '#') continue;
-                    int left = x + col * k, top = y + row * k;
-                    canvas.drawRect(left, top, left + k, top + k, paint);
-                }
-            }
-            x += (g[0].length() + 1) * k;
-        }
+        int x = (getWidth() - PixelText.width(text) * k) / 2 + dx;
+        int baseline = (getHeight() + PixelText.CAP * k) / 2 + dy;
+        PixelText.drawShadowed(canvas, paint, text, x, baseline, k, Color.WHITE);
     }
 }
