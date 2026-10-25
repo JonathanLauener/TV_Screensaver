@@ -8,3 +8,5 @@ com.spotify.tv.android
 com.nbaimd.gametime.nba2011
 com.tcl.browser
 ch.protonvpn.android
+tv.hianime.wrapper
+tv.movies123free.wrapper

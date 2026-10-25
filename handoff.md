@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 03:45_
+_Last updated: 2026-10-25 04:50_
 
 ## Goal
 
@@ -83,16 +83,32 @@ looping seamlessly, with the time in Minecraft's font on top.
   (onWakeUp via the system, not via a key event) and then starts the home activity.
 - `pm set-home-activity <component>` exists on the TV (Android 9).
 - TV HDMI inputs: Sony `com.sony.dtv.tvinput.external/.ExternalTvInputService/HW2..HW8`.
+  HW2..HW5 are HDMI 1, 2, 3/ARC, 4 and all report INPUT_STATE_CONNECTED (0) whatever is plugged
+  in; no HDMI-CEC devices are registered. (AOSP: a port without hotplug reports STANDBY, which
+  means "unknown", so the menu calls that "Kein Signal", not "standby".)
+- Sony settings pages that open directly (all side panels, exported): network
+  (ACTION_WIFI_SETTINGS), apps (ACTION_MANAGE_APPLICATIONS_SETTINGS), date (ACTION_DATE_SETTINGS),
+  `com.sony.dtv.settings.power.EcoActivity`, `...externalinputs.ExternalInputsActivity` (rename or
+  hide inputs), `...about.AboutActivity`. ACTION_SOUND_SETTINGS only has "Systemtöne"; the
+  speaker choice (TV or audio system) is `com.sony.dtv.settings.intent.action.SPEAKERS_SETTINGS`.
+  ACTION_DEVICE_INFO_SETTINGS and ACTION_APPLICATION_SETTINGS open the "open with" chooser.
+- `screencap -p` on the TV captures the video too (but not Sony's TV player: protected).
+- Opening an HDMI input starts Sony's `com.sony.dtv.tvx/.MainActivity`; BACK stays there.
 
 ## Home screen plan (in progress)
 
 Same APK and process as the dream, so both can share one decoder.
 
 - `HomeActivity` (HOME launcher, singleTask): SurfaceView video, black cover, a bottom
-  gradient, `PixelClockView`, and an apps panel: a row of app banners (apps.txt order:
-  Netflix, YouTube, Disney+, Prime Video, Spotify, NBA, TCL Browser, ProtonVPN) and a row of
-  Minecraft-style buttons (Play Store, HDMI inputs, Settings). HDMI opening logic is ported
-  from tv-detox (MIT).
+  gradient, `PixelClockView`, and an apps panel: two rows of app banners (home_apps.txt order:
+  Netflix, YouTube, Disney+, Prime Video, Spotify / NBA, TCL Browser, ProtonVPN, HiAnime,
+  123Movies) and a row of Minecraft-style buttons (Play Store, Quelle, Einstellungen). HDMI
+  opening logic is ported from tv-detox (MIT).
+- Quelle and Einstellungen open `McMenu`, an overlay in the same window drawn like Minecraft
+  1.21.11's multiplayer server list (numbers measured from the game; see the comments).
+  `HomeActivity.arrange()` places clock, apps, shade and menu for (home | idle) x (menu open).
+  Menus close on BACK/Zurück, HOME, idle mode and the screensaver hand-over; opening an entry
+  leaves the menu open (BACK from a settings side panel returns to it).
 - Ambient mode lives inside HomeActivity: while it's in front it holds KEEP_SCREEN_ON (so
   the system dream never starts over it) and after `screen_off_timeout` without a key it
   animates to ambient. Any key (volume excepted) or HOME animates back. Only when our dream
@@ -135,6 +151,23 @@ Verified on the TV (this branch is installed there as home screen + screensaver)
 - Test helpers (outside the repo): ~/.cache/mcclock-tv-test/{tv-handover.sh,handover.sh}.
   Android 9 TV emulator AVD `mcclock_tv28` (ANDROID_AVD_HOME=~/.config/.android/avd; stock
   launcher disabled there). Hyprland rule puts emulator windows on workspace 5.
+
+## Menus and two rows (04:45)
+
+Done on branch home-screen (uncommitted until the user says so): two rows of apps, Quelle and
+Einstellungen menus, McButton in the 1.21 colours (white label, no yellow on focus), strings in
+res/values + res/values-de, focus stops at the ends of each row (Android would jump diagonally
+from the last button onto a banner). HomeActivity's configChanges now includes layoutDirection:
+without it a language change relaunched the activity (Android changes both together), so
+onConfigurationChanged relabels in place; not run on a device (the emulator only has English).
+Reviewed by a two-lens review workflow with verifiers; all confirmed findings fixed.
+Verified on the TV: both rows fit with the clock and buttons; Quelle lists HDMI 1-4 ("Bereit");
+HDMI 4 opens Sony's TV app and HOME comes back with the menu closed and the video restarted;
+Ton opens Sony's speaker choice as a side panel over the menu and BACK returns to it; RIGHT on
+the last button stays; with a menu open the video stays at 60.0 fps sent and shown, 0 late.
+Verified on the API 28 emulator: empty input
+list, scrolling, BACK, idle mode from a menu. Another session (hianime-tv) asked for HiAnime and
+123Movies on the home screen; 123Movies currently ships HiAnime's banner (their side).
 
 ## Next steps
 

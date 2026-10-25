@@ -18,7 +18,15 @@ The TV starts the screensaver after 5 minutes without a remote press, or from
 Settings > Device Preferences > Screen saver > Start now. Any button leaves it; HOME goes to
 the home screen. On the home screen the same delay without a key slides the apps away and the
 clock to the middle (its own screensaver); any button brings them back. The apps on the home
-screen are listed in `assets/home_apps.txt`.
+screen are listed in `assets/home_apps.txt`, in two rows (the banners shrink if a row would be
+wider than the screen).
+
+Below the apps, **Quelle** and **Einstellungen** open menus that look like Minecraft's
+multiplayer server list (Java Edition 1.21): the TV's HDMI inputs, with their state as the
+signal bars, and shortcuts into the TV's settings (network with the Wi-Fi signal, sound, apps,
+date and time, power, inputs, about, all settings; pages a TV doesn't have are left out). Up and
+down pick an entry, OK opens it, BACK or Zurück closes the menu. The world video keeps playing
+behind, dimmed. The texts are German on a German TV and English otherwise (`res/values-de`).
 
 ## Design rule: the background is swappable
 
@@ -46,6 +54,11 @@ the picture while the screensaver is still on top.
   refresh (`Vsync`), and once 60 fps content is seen on a 60 Hz screen the two are locked:
   one frame per refresh, nothing dropped or repeated. If MediaCodec fails twice it falls
   back to MediaPlayer's own looping.
+- **Menus** (`McMenu`, with `InputsMenu` and `SettingsMenu`): drawn in GUI pixels at the
+  game's own GUI scale (4 at 1080p), with the measured layout and colours of 1.21.11's server
+  list: 36-pixel rows 305 wide, the selection frame, separators, scrollbar and 1.21 buttons
+  (`McButton`). The icons (`Icons`) are pixel art made for this app. The game blurs the world
+  behind its menus; a TV can't blur its video plane, so it's dimmed more instead.
 - **Clock** (`PixelClockView`): Minecraft's 5 x 7 digits and 1-pixel colon drawn as
   square blocks (18 px each at 1080p), in white with the #3F3F3F shadow one block right and
   down, as in the game. It follows the TV's 24-hour setting. Each minute it moves by half a

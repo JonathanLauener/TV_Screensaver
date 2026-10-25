@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="inputs">Quelle</string>
+    <string name="settings">Einstellungen</string>
+
+    <string name="refresh">Aktualisieren</string>
+    <string name="back">Zurück</string>
+
+    <string name="inputs_open">Quelle öffnen</string>
+    <string name="inputs_edit">Eingänge bearbeiten</string>
+    <string name="inputs_none">Keine Quellen gefunden</string>
+    <string name="input_ready">Bereit</string>
+    <string name="input_no_signal">Kein Signal</string>
+    <string name="input_disconnected">Nichts angeschlossen</string>
+
+    <string name="settings_open">Öffnen</string>
+    <string name="settings_none">Keine Einstellungen gefunden</string>
+    <string name="settings_all">Alle Einstellungen</string>
+    <string name="settings_all_info">Alles, was der Fernseher einstellen kann</string>
+    <string name="settings_network">Netzwerk</string>
+    <string name="settings_network_wifi">WLAN: verbunden</string>
+    <string name="settings_network_ethernet">LAN-Kabel: verbunden</string>
+    <string name="settings_network_other">Verbunden</string>
+    <string name="settings_network_none">Nicht verbunden</string>
+    <string name="settings_sound">Ton</string>
+    <string name="settings_sound_info">Systemtöne</string>
+    <string name="settings_sound_speakers">TV-Lautsprecher oder Audiosystem</string>
+    <string name="settings_apps">Apps</string>
+    <string name="settings_apps_info">Installierte Apps, Speicher und Berechtigungen</string>
+    <string name="settings_date">Datum &amp; Uhrzeit</string>
+    <string name="settings_power">Energie</string>
+    <string name="settings_power_info">Eco-Einstellungen und Energiesparen</string>
+    <string name="settings_inputs">Eingänge</string>
+    <string name="settings_inputs_info">HDMI-Eingänge umbenennen oder ausblenden</string>
+    <string name="settings_about">Info</string>
+    <string name="settings_about_info">%1$s, Android %2$s</string>
+</resources>

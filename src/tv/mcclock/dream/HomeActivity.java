@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -14,8 +15,6 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
-import android.media.tv.TvInputInfo;
-import android.media.tv.TvInputManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,14 +27,12 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -51,17 +48,24 @@ import tv.mcclock.dream.background.Backgrounds;
  * exactly like {@link ClockDream}. Any key brings the home screen back. (It keeps the screen
  * on meanwhile, so the system's own screensaver doesn't start on top.)
  *
+ * Below the apps, Quelle and Einstellungen open menus over it that look like Minecraft's
+ * server list ({@link McMenu}): the TV's inputs, and shortcuts into the TV's settings.
+ *
  * The app list, banners and HDMI inputs follow tv-detox's home screen (MIT, ~/tv-detox).
  */
-public final class HomeActivity extends Activity implements Background.Host, Handover.Home {
+public final class HomeActivity extends Activity implements Background.Host, Handover.Home,
+        McMenu.Host {
 
     private static final int HOME = 0, AMBIENT = 1;
     // Layout in pixels at 1080p, scaled to the real screen by px().
-    private static final int CLOCK_LIFT = 230;   // the clock's centre moves up by this at home
-    private static final int PANEL_TOP = 560;
+    private static final int CLOCK_LIFT = 250;   // the clock's centre moves up by this at home
+    private static final int PANEL_TOP = 500;    // top of the first row of banners
     private static final int TILE_W = 256, TILE_H = 144, TILE_GAP = 32, MARGIN = 96;
-    private static final int ROW_GAP = 8, BUTTON_GAP = 24, SHADE_TOP = 380;
+    private static final int TILE_ROW_GAP = 16;  // below a row's caption space
+    private static final int ROW_GAP = 24, BUTTON_GAP = 24, SHADE_TOP = 340;
+    private static final int GROW_ROOM = 16;     // above the first row, for a focused banner
     private static final long MOVE_MS = 750;
+    private static final long MENU_MS = 150;     // the menus fade in and out this fast
     private static final long HANDOVER_MAX_MS = 3000;
     /**
      * Android 9 stops us under the screensaver; once stopped our window can't get its video
@@ -71,7 +75,6 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     private static final int NO_KEY = -1;
     private static final String APPS_ASSET = "home_apps.txt";
     private static final String PLAY_STORE = "com.android.vending";
-    private static final int MAX_INPUTS = 4;
     // Live TV apps an HDMI button can open, tried in order (from tv-detox).
     private static final String[][] LIVE_TV = {{"com.android.tv", "com.android.tv.MainActivity"},
             {"com.droidlogic.android.tv", "com.android.tv.TvActivity"}};
@@ -99,7 +102,12 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     private Background background;
     private View cover, shade;
     private PixelClockView clock;
-    private LinearLayout panel, tilesRow, buttonsRow;
+    private LinearLayout panel, tiles, buttonsRow;
+    private McMenu menu;
+    private InputsMenu inputsMenu;
+    private SettingsMenu settingsMenu;
+    private Object menuOpener;  // the tag of the button that opened the menu
+    private Locale locale;      // the language the labels are in
     private int mode = HOME;
     // Taking over from the screensaver: claimed it, took the background, and it's on screen.
     private boolean handingOver, tookOver, readySent;
@@ -111,6 +119,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         scale = getResources().getDisplayMetrics().heightPixels / 1080f;
+        locale = getResources().getConfiguration().getLocales().get(0);
         // Not FLAG_KEEP_SCREEN_ON: its wake lock counts as user activity when it's let go, which
         // would put off the TV's own sleep timer by another screensaver delay.
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
@@ -145,28 +154,28 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         panel.setClipChildren(false);
         panel.setClipToPadding(false);
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(match, wrap);
-        panelLp.topMargin = px(PANEL_TOP) - px(16);
+        panelLp.topMargin = px(PANEL_TOP) - px(GROW_ROOM);
         root.addView(panel, panelLp);
 
-        HorizontalScrollView scroller = new HorizontalScrollView(this);
-        scroller.setFillViewport(true);
-        scroller.setHorizontalScrollBarEnabled(false);
-        scroller.setClipChildren(false);
-        scroller.setClipToPadding(false);
-        scroller.setFocusable(false);  // the tiles take the focus, never the empty row
-        tilesRow = new LinearLayout(this);
-        tilesRow.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-        tilesRow.setClipChildren(false);
-        tilesRow.setClipToPadding(false);
-        tilesRow.setPadding(px(MARGIN), px(16), px(MARGIN), 0);  // room for a focused tile to grow
-        scroller.addView(tilesRow, new HorizontalScrollView.LayoutParams(match, wrap));
-        panel.addView(scroller, new LinearLayout.LayoutParams(match, wrap));
+        // The banners, in two rows (see buildTiles).
+        tiles = new LinearLayout(this);
+        tiles.setOrientation(LinearLayout.VERTICAL);
+        tiles.setClipChildren(false);
+        tiles.setClipToPadding(false);
+        tiles.setPadding(0, px(GROW_ROOM), 0, 0);
+        panel.addView(tiles, new LinearLayout.LayoutParams(match, wrap));
 
         buttonsRow = new LinearLayout(this);
         buttonsRow.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams buttonsLp = new LinearLayout.LayoutParams(match, wrap);
         buttonsLp.topMargin = px(ROW_GAP);
         panel.addView(buttonsRow, buttonsLp);
+
+        menu = new McMenu(this, this);
+        menu.setVisibility(View.GONE);
+        root.addView(menu, match, match);
+        inputsMenu = new InputsMenu(this, this::openInput);
+        settingsMenu = new SettingsMenu(this, this::openPage);
 
         setContentView(root);
         buildTiles();
@@ -179,10 +188,29 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         registerReceiver(packagesChanged, filter);
     }
 
+    /**
+     * We handle a language change ourselves (configChanges: locale, and layoutDirection, which
+     * Android changes along with it), so the video goes on; the labels need the new language.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        Locale now = getResources().getConfiguration().getLocales().get(0);
+        if (now.equals(locale)) return;
+        locale = now;
+        buildTiles();
+        McMenu.Content open = menu.content();
+        if (open != null) {
+            menu.show(open);
+            menu.focusFirst();
+        }
+    }
+
     @Override
     protected void onDestroy() {
         unregisterReceiver(packagesChanged);
         handler.removeCallbacksAndMessages(null);
+        menu.clear();
         releaseScreen();
         Handover.release(this);
         background.hide(this);
@@ -217,6 +245,8 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         // Back from something that didn't hide us (the TV's settings are a side panel): the
         // background was suspended for it.
         if (!handingOver) background.resume();
+        // Back from a settings page or an input: what the menu shows may have changed.
+        if (menuOpen()) menu.refresh();
     }
 
     @Override
@@ -249,12 +279,16 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             beginHandover();  // HOME in a screensaver over us, and we weren't stopped
         } else if (mode == AMBIENT) {
             setMode(HOME, true);  // HOME in idle mode
+        } else if (menuOpen()) {
+            // HOME in a menu: back to the apps. No fade if we're coming back from black.
+            closeMenu(cover.getVisibility() != View.VISIBLE);
         }
     }
 
     @Override
     public void onBackPressed() {
-        // Nothing to go back to.
+        if (menuOpen()) closeMenu(true);
+        // Otherwise there's nothing to go back to.
     }
 
     @Override
@@ -407,13 +441,45 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     private void setMode(int newMode, boolean animate) {
         mode = newMode;
         boolean home = newMode == HOME;
+        // The idle mode looks exactly like the screensaver: no menu. Its button keeps the focus.
+        boolean closing = !home && menuOpen();
+        if (closing) menu.clear();
+        arrange(animate);
+        if (closing) focusMenuButton();
+        if (home) {
+            restartIdle();
+        } else {
+            handler.removeCallbacks(goAmbient);
+        }
+    }
+
+    /**
+     * Puts everything where the mode and the menu want it. At home the clock is lifted with the
+     * apps below, unless a menu covers them (they fade out under it); in idle mode only the
+     * clock shows, in the middle.
+     */
+    private void arrange(boolean animate) {
+        boolean home = mode == HOME, inMenu = home && menuOpen();
         float clockY = home ? -px(CLOCK_LIFT) : 0;
         float panelY = home ? 0 : getResources().getDisplayMetrics().heightPixels - px(PANEL_TOP)
                 + px(40);
         float shadeAlpha = home ? 1 : 0;
+        float shown = inMenu ? 0 : 1;  // the clock and the apps
         Anim.cancelAll(clock);
         Anim.cancelAll(panel);
         Anim.cancelAll(shade);
+        Anim.cancelAll(menu);
+        // What's hidden can't take the focus: the apps under a menu, a menu on its way out.
+        panel.setDescendantFocusability(inMenu ? ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                : ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        menu.setDescendantFocusability(inMenu ? ViewGroup.FOCUS_AFTER_DESCENDANTS
+                : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        if (inMenu) menu.setVisibility(View.VISIBLE);
+        if (!home && panel.getAlpha() < 1f) {
+            // Hidden by a menu: off the screen at once, and visible again there.
+            panel.setTranslationY(panelY);
+            panel.setAlpha(1f);
+        }
         if (animate) {
             PathInterpolator ease = new PathInterpolator(0.3f, 0f, 0.15f, 1f);
             // Going home the clock leads and the apps follow; going idle the apps leave first.
@@ -422,15 +488,66 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             Anim.of(panel, View.TRANSLATION_Y, panelY, MOVE_MS).ease(ease).delay(home ? 90 : 0)
                     .withLayer().start();
             Anim.of(shade, View.ALPHA, shadeAlpha, MOVE_MS).start();
+            // From a menu into idle mode the clock fades in on its way down.
+            Anim.of(clock, View.ALPHA, shown, home ? MENU_MS : MOVE_MS / 2).start();
+            Anim.of(panel, View.ALPHA, shown, MENU_MS).start();
+            Anim.of(menu, View.ALPHA, inMenu ? 1 : 0, MENU_MS)
+                    .then(inMenu ? null : () -> menu.setVisibility(View.GONE)).start();
         } else {
             clock.setTranslationY(clockY);
             panel.setTranslationY(panelY);
             shade.setAlpha(shadeAlpha);
+            clock.setAlpha(shown);
+            panel.setAlpha(shown);
+            menu.setAlpha(inMenu ? 1 : 0);
+            menu.setVisibility(inMenu ? View.VISIBLE : View.GONE);
         }
-        if (home) {
-            restartIdle();
-        } else {
-            handler.removeCallbacks(goAmbient);
+    }
+
+    // ---- The menus ----
+
+    private boolean menuOpen() {
+        return menu.content() != null;
+    }
+
+    /** Opens a menu over the apps, from the button with this tag (the focus goes back there). */
+    private void openMenu(McMenu.Content content, Object opener) {
+        if (mode != HOME || handingOver || menuOpen()) return;
+        menuOpener = opener;
+        menu.show(content);
+        arrange(true);
+        menu.focusFirst();
+    }
+
+    @Override
+    public void closeMenu() {
+        closeMenu(true);
+    }
+
+    private void closeMenu(boolean animate) {
+        if (!menuOpen()) return;
+        menu.clear();
+        arrange(animate);
+        focusMenuButton();
+    }
+
+    /** Back on the button that opened the menu (found again, in case the buttons were rebuilt). */
+    private void focusMenuButton() {
+        View opener = menuOpener == null ? null : panel.findViewWithTag(menuOpener);
+        if (opener != null) opener.requestFocus();
+    }
+
+    /**
+     * The TV's settings pages are side panels over us and need no video decoder: the background
+     * keeps going behind them. A fresh task each time: they all share one, and an old one would
+     * come back on the page it was left on, with BACK going through the old pages.
+     */
+    @Override
+    public void openPage(Intent page) {
+        try {
+            startActivity(new Intent(page).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -466,35 +583,51 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         // Keep the focus where it was (by package or label) across a rebuild.
         View focused = panel.findFocus();
         Object focusedTag = focused == null ? null : focused.getTag();
-        tilesRow.removeAllViews();
+        tiles.removeAllViews();
         buttonsRow.removeAllViews();
         PackageManager pm = getPackageManager();
-        int w = px(TILE_W), h = px(TILE_H);
-        View first = null;
+        List<String> pkgs = new ArrayList<>();
+        List<Intent> launches = new ArrayList<>();
         for (String pkg : appList()) {
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
+            pkgs.add(pkg);
+            launches.add(launch);
+        }
+        // Two rows, the first one a banner longer for an odd count. Banners shrink if a row
+        // would be wider than the screen.
+        int perRow = Math.max(1, (pkgs.size() + 1) / 2);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int gap = px(TILE_GAP);
+        int w = Math.min(px(TILE_W), (screenW - 2 * px(MARGIN) - (perRow - 1) * gap) / perRow);
+        int h = Math.round(w * (float) TILE_H / TILE_W);
+        View first = null;
+        LinearLayout row = null;
+        for (int i = 0; i < pkgs.size(); i++) {
+            if (i % perRow == 0) row = addTileRow(i == 0 ? 0 : px(TILE_ROW_GAP));
+            String pkg = pkgs.get(i);
+            Intent launch = launches.get(i);
             AppTile tile = new AppTile(this, banner(pm, pkg, launch, w, h), label(pm, pkg), w, h,
                     scale);
             tile.setOnClickListener(v -> start(launch));
             tile.setTag(pkg);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (tilesRow.getChildCount() > 0) lp.leftMargin = px(TILE_GAP);
-            tilesRow.addView(tile, lp);
+            if (row.getChildCount() > 0) lp.leftMargin = gap;
+            row.addView(tile, lp);
             if (first == null) first = tile;
         }
 
         int bp = Math.max(1, Math.round(3 * scale));
         Intent store = launchIntent(pm, PLAY_STORE);
-        if (store != null) addButton("Play Store", bp, v -> start(store));
-        for (TvInputInfo input : hdmiInputs()) {
-            String id = input.getId();
-            addButton(inputLabel(input), bp, v -> openInput(id));
-        }
-        String settings = "de".equals(Locale.getDefault().getLanguage()) ? "Einstellungen" : "Settings";
-        addButton(settings, bp, v -> openSettings());
+        if (store != null) addButton("store", "Play Store", bp, v -> start(store));
+        addButton("inputs", getString(R.string.inputs), bp, v -> openMenu(inputsMenu, v.getTag()));
+        addButton("settings", getString(R.string.settings), bp,
+                v -> openMenu(settingsMenu, v.getTag()));
+        for (int r = 0; r < tiles.getChildCount(); r++) stopAtEnds((ViewGroup) tiles.getChildAt(r));
+        stopAtEnds(buttonsRow);
 
+        if (menuOpen()) return;  // the focus is in the menu; closing it finds its button again
         View again = focusedTag == null ? null : panel.findViewWithTag(focusedTag);
         if (again != null) {
             again.requestFocus();
@@ -505,10 +638,37 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         }
     }
 
-    private void addButton(String label, int bp, View.OnClickListener click) {
+    /**
+     * Left from the first and right from the last of a row go nowhere. Android would otherwise
+     * jump diagonally into the nearest row (from the last button up onto a banner).
+     */
+    private static void stopAtEnds(ViewGroup row) {
+        int n = row.getChildCount();
+        if (n == 0) return;
+        View first = row.getChildAt(0), last = row.getChildAt(n - 1);
+        if (first.getId() == View.NO_ID) first.setId(View.generateViewId());
+        if (last.getId() == View.NO_ID) last.setId(View.generateViewId());
+        first.setNextFocusLeftId(first.getId());
+        last.setNextFocusRightId(last.getId());
+    }
+
+    private LinearLayout addTileRow(int topMargin) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        row.setClipChildren(false);
+        row.setClipToPadding(false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = topMargin;
+        tiles.addView(row, lp);
+        return row;
+    }
+
+    /** The key tags it, so the focus finds it again after a rebuild (even in another language). */
+    private void addButton(String key, String label, int bp, View.OnClickListener click) {
         McButton b = new McButton(this, label, bp);
         b.setOnClickListener(click);
-        b.setTag("button:" + label);
+        b.setTag("button:" + key);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         if (buttonsRow.getChildCount() > 0) lp.leftMargin = px(BUTTON_GAP);
@@ -528,17 +688,6 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         }
         out.remove(getPackageName());
         return out;
-    }
-
-    /**
-     * The TV's settings are a side panel over us and need no video decoder: the background
-     * keeps going behind it.
-     */
-    private void openSettings() {
-        try {
-            startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (RuntimeException ignored) {
-        }
     }
 
     /** Starts something on top, after freeing what the background holds (such as a video decoder). */
@@ -574,28 +723,6 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             }
         }
         background.resume();
-    }
-
-    /** The TV's own HDMI inputs (not devices behind them), in order, skipping hidden ones. */
-    private List<TvInputInfo> hdmiInputs() {
-        List<TvInputInfo> out = new ArrayList<>();
-        TvInputManager tim = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
-        if (tim == null) return out;
-        for (TvInputInfo in : tim.getTvInputList()) {
-            if (in.getType() == TvInputInfo.TYPE_HDMI && in.getParentId() == null && !in.isHidden(this)) {
-                out.add(in);
-            }
-        }
-        Collections.sort(out, (a, b) -> a.getId().compareTo(b.getId()));
-        return out.size() > MAX_INPUTS ? out.subList(0, MAX_INPUTS) : out;
-    }
-
-    /** The name set in Settings > Inputs (like "Bedroom"), else the TV's own (like "HDMI 1"). */
-    private String inputLabel(TvInputInfo in) {
-        CharSequence custom = in.loadCustomLabel(this);
-        if (custom != null && custom.length() > 0) return custom.toString();
-        CharSequence label = in.loadLabel(this);
-        return label != null && label.length() > 0 ? label.toString() : "HDMI";
     }
 
     private static Intent launchIntent(PackageManager pm, String pkg) {
