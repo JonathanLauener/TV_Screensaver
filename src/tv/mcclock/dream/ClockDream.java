@@ -64,6 +64,7 @@ public final class ClockDream extends DreamService implements Background.Host {
     public void onDreamingStarted() {
         super.onDreamingStarted();
         Handover.dreamStarted(this);
+        Music.get(this).hold(this);
     }
 
     @Override
@@ -81,7 +82,13 @@ public final class ClockDream extends DreamService implements Background.Host {
     private void cleanUp() {
         handler.removeCallbacksAndMessages(null);
         if (background != null) background.hide(this);
+        // Woken by a key: back to the app underneath, so the music goes now, unless that's the
+        // home screen. Otherwise the home screen takes it over (HOME), or it fades out shortly
+        // (the TV going to sleep).
+        Music.get(this).release(this, wokenByInput && !Handover.homeUnderDream());
         Handover.dreamGone(this);
+        // A home screen asleep under us kept its surface for a hand-over that isn't coming.
+        if (background != null) background.recheckKeptSurfaces();
     }
 
     /** Ends the screensaver now. */

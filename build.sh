@@ -4,7 +4,13 @@
 #   BACKGROUND_FILE=/path/to/loop.webm ./build.sh   another video (webm, mp4, mkv)
 #   BACKGROUND_FILE=/path/to/picture.png ./build.sh a still image (png, jpg, webp)
 # VIDEO=... works too, as another name for BACKGROUND_FILE.
+# The music played on the screensaver and home screen comes from ./soundtrack (mp3, ogg, m4a);
+#   MUSIC_DIR=/other/folder ./build.sh   from elsewhere,  MUSIC_DIR= ./build.sh   none.
 set -euo pipefail
+# Relative paths given by the caller are relative to where it was run from.
+for v in BACKGROUND_FILE VIDEO MUSIC_DIR; do
+  if [[ -n "${!v:-}" && "${!v}" != /* ]]; then export "$v=$PWD/${!v}"; fi
+done
 cd "$(dirname "$0")"
 
 VERSION_CODE=1
@@ -12,6 +18,7 @@ VERSION_NAME=1.0
 MIN_SDK=24          # the target TV runs Android 9 (API 28)
 TARGET_SDK=34
 BACKGROUND_FILE=${BACKGROUND_FILE:-${VIDEO:-$HOME/screensaver.webm}}
+MUSIC_DIR=${MUSIC_DIR-soundtrack}
 APK=MinecraftClock.apk
 
 ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
@@ -23,6 +30,15 @@ fi
 [[ -x "${JAVA_HOME:-}/bin/javac" ]] || { echo "JDK not found: set JAVA_HOME" >&2; exit 1; }
 [[ -f "$PLATFORM" && -x "$BT/aapt2" ]] || { echo "Android SDK not found at $ANDROID_HOME" >&2; exit 1; }
 [[ -f "$BACKGROUND_FILE" ]] || { echo "Background not found: $BACKGROUND_FILE" >&2; exit 1; }
+if [[ -n "$MUSIC_DIR" && ! -d "$MUSIC_DIR" ]]; then
+  if [[ "$MUSIC_DIR" == soundtrack ]]; then
+    echo "No soundtrack/ folder: building without music" >&2
+    MUSIC_DIR=
+  else
+    echo "Music folder not found: $MUSIC_DIR (MUSIC_DIR= builds without music)" >&2
+    exit 1
+  fi
+fi
 # The file's type picks what draws it (src/tv/mcclock/dream/background/Backgrounds.java).
 EXT=$(tr '[:upper:]' '[:lower:]' <<<"${BACKGROUND_FILE##*.}")
 case "$EXT" in
@@ -39,10 +55,33 @@ echo "[1/6] resources"
 [[ -d assets ]] && cp -r assets/. "$OUT/assets/"
 rm -f "$OUT"/assets/background.*
 cp "$BACKGROUND_FILE" "$OUT/assets/background.$EXT"
+# A video's own sound would only be muted, and it would keep the music from starting (Music
+# doesn't play over other audio): take it out.
+if [[ "$EXT" == webm || "$EXT" == mp4 || "$EXT" == mkv ]] && command -v ffprobe >/dev/null \
+    && [[ -n "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$BACKGROUND_FILE")" ]]; then
+  if command -v ffmpeg >/dev/null; then
+    ffmpeg -v error -y -i "$BACKGROUND_FILE" -map 0:v -c copy "$OUT/assets/background.$EXT"
+    echo "      background: its sound track left out"
+  else
+    echo "warning: the background video has sound, which keeps the music from playing; install ffmpeg to leave it out" >&2
+  fi
+fi
+# Tracks go in as assets/music/01.mp3, 02.mp3, ... (in file name order).
+rm -rf "$OUT/assets/music"
+if [[ -n "$MUSIC_DIR" && -d "$MUSIC_DIR" ]]; then
+  mkdir -p "$OUT/assets/music"
+  n=0
+  while IFS= read -r -d '' f; do
+    n=$((n + 1))
+    ext=$(tr '[:upper:]' '[:lower:]' <<<"${f##*.}")
+    cp "$f" "$OUT/assets/music/$(printf '%02d' "$n").$ext"
+  done < <(find "$MUSIC_DIR" -maxdepth 1 -type f \( -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' \) -print0 | sort -z)
+  echo "      $n music tracks from $MUSIC_DIR"
+fi
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
-# Videos stay uncompressed so they can be read straight out of the APK.
+# Videos and music stay uncompressed so they can be read straight out of the APK.
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest AndroidManifest.xml -A "$OUT/assets" \
-  -0 webm -0 mkv -0 mp4 --java "$OUT/gen" --min-sdk-version $MIN_SDK --target-sdk-version $TARGET_SDK \
+  -0 webm -0 mkv -0 mp4 -0 mp3 -0 ogg -0 m4a --java "$OUT/gen" --min-sdk-version $MIN_SDK --target-sdk-version $TARGET_SDK \
   --version-code $VERSION_CODE --version-name $VERSION_NAME "$OUT/res.zip"
 
 echo "[2/6] javac"
@@ -76,4 +115,5 @@ fi
 echo "[6/6] verify"
 "$BT/apksigner" verify --min-sdk-version $MIN_SDK "$APK"
 unzip -v "$APK" | grep -E 'assets/background\.'
+echo "music tracks: $(unzip -l "$APK" | grep -c 'assets/music/')"
 ls -lh "$APK"

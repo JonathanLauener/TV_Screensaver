@@ -4,6 +4,10 @@
 #   ./install.sh --now         ...and start it right away to have a look
 #   DEVICE=emulator-5554 ./install.sh --now
 set -euo pipefail
+# Relative paths given by the caller are relative to where it was run from.
+for v in BACKGROUND_FILE VIDEO MUSIC_DIR; do
+  if [[ -n "${!v:-}" && "${!v}" != /* ]]; then export "$v=$PWD/${!v}"; fi
+done
 cd "$(dirname "$0")"
 
 DEVICE=${DEVICE:-192.168.178.23}

@@ -48,9 +48,11 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
     private final Context app;
     private final String asset;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final Runnable retry = this::update;
+    private final Runnable retry = this::retryNow;
+    private Host renewFor;  // the retry first gives this host's view a new surface
     /** Wanted hosts in the order they last called show(); the last one with a surface is shown. */
     private final ArrayList<Entry> entries = new ArrayList<>();
+    private final ArrayList<KeptSurfaceView> views = new ArrayList<>();  // one per host
     private LoopingVideo player;
     private MediaPlayer fallback;
     private Surface fallbackSurface;
@@ -65,7 +67,20 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
     @Override
     public View createView(Context context, Host host) {
         entry(host);
-        SurfaceView view = new KeptSurfaceView(context);
+        KeptSurfaceView view = new KeptSurfaceView(context, host);
+        views.add(view);
+        // Only while it's in a window: an old screensaver's view mustn't stay referenced.
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                if (!views.contains(view)) views.add(view);
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                views.remove(view);
+            }
+        });
         view.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
@@ -111,13 +126,30 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
         e.wanted = false;
         e.owed = false;
         if (e.surface == null) entries.remove(e);
+        boolean anyWanted = false;
+        for (Entry x : entries) anyWanted |= x.wanted;
+        if (!anyWanted) failures = 0;  // the next time starts with the decoder again
         update();
+    }
+
+    /**
+     * A view that kept its surface while its host was stopped (under the screensaver) lets go of
+     * it now if its host no longer wants the picture: nothing else would tear it down until the
+     * host comes back, and the surface may not outlive its window.
+     */
+    @Override
+    public void recheckKeptSurfaces() {
+        for (KeptSurfaceView v : new ArrayList<>(views)) {
+            Entry e = find(v.host);
+            if (e == null || !e.wanted) v.releaseKept();
+        }
     }
 
     @Override
     public void suspend() {
         main.removeCallbacksAndMessages(null);
         failures = 0;
+        renewFor = null;
         if (player != null) {
             player.stop();
             player = null;
@@ -136,20 +168,61 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
     }
 
     /**
-     * Keeps its surface when its activity is stopped while the window stays on screen. Android 9
-     * does that to every activity under a screensaver ("sleeping"), and a home screen there has
-     * to take the picture before the screensaver goes, so it's already on screen when it does.
-     * A window that is really hidden still loses the surface, through its visibility. The host
-     * calls hide() if it doesn't want the picture while stopped, so no decoder runs for nothing.
+     * Keeps its surface when its activity is stopped while the window stays on screen, if the
+     * host wants that (Host.keepSurfaceWhileStopped): Android 9 does that to every activity
+     * under a screensaver ("sleeping"), and a home screen there has to take the picture before
+     * the screensaver goes, so it's already on screen when it does. The host calls hide() if it
+     * doesn't want the picture while stopped, so no decoder runs for nothing.
+     *
+     * Any other stop lets go of the surface at once, by hiding the view, as a SurfaceView does
+     * for a stop. (Its other cue, the window's visibility, doesn't always come before the stop:
+     * the surface then outlived the window, and the decoder failed on it after the next start.)
      */
     private static final class KeptSurfaceView extends SurfaceView {
-        KeptSurfaceView(Context context) {
+        private final Host host;
+        private boolean hiddenForStop, keptForStop;
+
+        KeptSurfaceView(Context context, Host host) {
             super(context);
+            this.host = host;
         }
 
-        /** Overrides the hidden SurfaceView.windowStopped(boolean): ignore the stop. */
+        /** Overrides the hidden SurfaceView.windowStopped(boolean). */
         @SuppressWarnings("unused")
         public void windowStopped(boolean stopped) {
+            if (stopped) {
+                if (getVisibility() != VISIBLE) return;
+                if (host.keepSurfaceWhileStopped()) {
+                    keptForStop = true;
+                    return;
+                }
+                hiddenForStop = true;
+                setVisibility(INVISIBLE);
+            } else {
+                keptForStop = false;
+                if (hiddenForStop) {
+                    hiddenForStop = false;
+                    setVisibility(VISIBLE);
+                }
+            }
+        }
+
+        /** Still stopped, but no longer needs the surface it kept: let it go now. */
+        void releaseKept() {
+            if (!keptForStop) return;
+            keptForStop = false;
+            hiddenForStop = true;
+            setVisibility(INVISIBLE);
+        }
+
+        /** Swaps the surface for a new one (the old one may be dead). False if it can't. */
+        boolean renewSurface() {
+            if (getVisibility() != VISIBLE || !isAttachedToWindow()) return false;
+            setVisibility(INVISIBLE);
+            post(() -> {
+                if (!hiddenForStop) setVisibility(VISIBLE);
+            });
+            return true;
         }
     }
 
@@ -176,21 +249,43 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
         return null;
     }
 
+    /**
+     * Tries again after a failure, first giving a surface the decoder may have found dead a new
+     * one (its creation then starts the video).
+     */
+    private void retryNow() {
+        Host h = renewFor;
+        renewFor = null;
+        if (h != null && renewSurface(h)) return;
+        update();
+    }
+
+    /** Stops the video (both players), without forgetting the failures so far. */
+    private void stopVideo() {
+        main.removeCallbacksAndMessages(null);
+        if (player != null) {
+            player.stop();
+            player = null;
+        }
+        if (fallback != null) {
+            fallback.release();
+            fallback = null;
+            fallbackSurface = null;
+            fallbackPlaying = false;
+        }
+    }
+
     /** Puts the picture on the target's surface, starting or stopping the video as needed. */
     private void update() {
         main.removeCallbacks(retry);
         Entry top = target();
         if (top == null) {
-            suspend();
+            stopVideo();
             return;
         }
         if (player != null && !player.isRunning()) {
             // Its decoder failed and the error is on its way; stopping it drops that message.
-            failures++;
-            Log.w(TAG, "MediaCodec loop failed (" + failures + ")");
-            player.stop();
-            player = null;
-            main.postDelayed(retry, RETRY_MS);
+            failed(top, null);
             return;
         }
         if (player != null) {
@@ -264,12 +359,34 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
     @Override
     public void onVideoError(LoopingVideo source, Exception error) {
         if (source != player) return;
+        failed(target(), error);
+    }
+
+    /**
+     * The decoder failed: try again in a moment. If it never showed a frame, its surface may be
+     * dead (it outlived its window): the view gets a new one first. Otherwise the last frame
+     * stays on screen meanwhile.
+     */
+    private void failed(Entry top, Exception error) {
         failures++;
         Log.w(TAG, "MediaCodec loop failed (" + failures + ")", error);
+        boolean shown = player.hasShownFrame();
+        Surface on = player.surface();
         player.stop();
         player = null;
-        // The last frame stays on screen meanwhile.
+        renewFor = !shown && top != null && top.surface == on ? top.host : null;
         main.postDelayed(retry, RETRY_MS);
+    }
+
+    private boolean renewSurface(Host host) {
+        boolean renewed = false;
+        for (KeptSurfaceView v : new ArrayList<>(views)) {
+            if (v.host == host && v.renewSurface()) {
+                Log.i(TAG, "new surface for " + name(host));
+                renewed = true;
+            }
+        }
+        return renewed;
     }
 
     private void startFallback(Surface surface) {
@@ -307,8 +424,13 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
             fallbackSurface = surface;
             Log.i(TAG, "playing with MediaPlayer fallback");
         } catch (IOException | RuntimeException e) {
+            // Probably a dead surface too: start over on a new one in a while.
             Log.e(TAG, "MediaPlayer fallback failed", e);
             mp.release();
+            failures = 0;
+            Entry top = target();
+            renewFor = top == null ? null : top.host;
+            main.postDelayed(retry, FALLBACK_RETRY_MS);
         }
     }
 }
