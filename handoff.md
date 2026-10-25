@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 03:30_
+_Last updated: 2026-10-25 03:45_
 
 ## Goal
 
@@ -138,8 +138,9 @@ Verified on the TV (this branch is installed there as home screen + screensaver)
 
 ## Next steps
 
-1. Final review workflow (review-final, 3 lenses + verifiers) was running at 03:30: apply what it
-   confirms, retest on the TV.
-2. Push `home-screen` to GitHub (`git@github-mcclock:JonathanLauener/TV_Screensaver.git`), merge to
-   `main`.
-3. Open questions for the user: keep the stock animation scales at 0 (we don't need them now)?
+1. A final review (3 lenses + verifiers) found 7 small issues; all fixed (re-armed hand-over timer
+   once ready, stopped home lets go of the decoder, MediaPlayer fallback retries, stale first-frame
+   check, dead decode thread detected, exact sleep time, undo.sh activity poke). Regression on the
+   TV passed (2x HOME hand-over, key in the screensaver).
+2. Open question for the user: the TV's animation scales are 0 (tv-detox?); the app no longer
+   depends on them.

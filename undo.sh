@@ -26,6 +26,11 @@ else
   echo "No saved settings for $DEVICE: going back to the TV's default screensaver." >&2
   adb shell settings delete secure screensaver_components >/dev/null
 fi
+# Uninstalling ends the home screen's idle mode, which holds the screen on; without some
+# activity first the restored screensaver (or standby) would start at once.
+if grep -qE 'ResumedActivity.*tv\.mcclock\.dream/\.HomeActivity' <<<"$(adb shell dumpsys activity activities)"; then
+  adb shell input keyevent KEYCODE_SHIFT_LEFT
+fi
 home_ok=true
 if [[ -f ".previous/$DEVICE.home" ]]; then
   if adb shell cmd package set-home-activity "$(cat ".previous/$DEVICE.home")" >/dev/null; then

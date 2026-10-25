@@ -29,6 +29,8 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
     private static final int MAX_FAILURES = 2;
     /** After a failure, wait this long before trying again (another app may hold the decoder). */
     private static final long RETRY_MS = 1000;
+    /** After the MediaPlayer fallback failed too, wait this long before starting over. */
+    private static final long FALLBACK_RETRY_MS = 5000;
     /** MediaPlayer doesn't say when the first frame reached a new surface; assume by then. */
     private static final long FALLBACK_SWITCH_MS = 150;
 
@@ -182,6 +184,15 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
             suspend();
             return;
         }
+        if (player != null && !player.isRunning()) {
+            // Its decoder failed and the error is on its way; stopping it drops that message.
+            failures++;
+            Log.w(TAG, "MediaCodec loop failed (" + failures + ")");
+            player.stop();
+            player = null;
+            main.postDelayed(retry, RETRY_MS);
+            return;
+        }
         if (player != null) {
             if (player.surface() == top.surface) {
                 if (top.owed && player.hasShownFrame()) announce(top);
@@ -247,7 +258,7 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
         if (source != player) return;
         failures = 0;
         Entry top = target();
-        if (top != null && source.surface() == top.surface) announce(top);
+        if (top != null && source.surface() == top.surface && source.hasShownFrame()) announce(top);
     }
 
     @Override
@@ -279,6 +290,15 @@ final class VideoBackground implements Background, LoopingVideo.Listener {
             });
             mp.setOnErrorListener((p, what, extra) -> {
                 Log.e(TAG, "MediaPlayer error " + what + "/" + extra);
+                if (p == fallback) {
+                    // Start over (with MediaCodec again) in a while; the last frame stays.
+                    fallback.release();
+                    fallback = null;
+                    fallbackSurface = null;
+                    fallbackPlaying = false;
+                    failures = 0;
+                    main.postDelayed(retry, FALLBACK_RETRY_MS);
+                }
                 return true;
             });
             mp.setOnPreparedListener(MediaPlayer::start);
