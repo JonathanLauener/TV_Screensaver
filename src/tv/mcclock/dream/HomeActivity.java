@@ -295,6 +295,13 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     public void dreamGone() {
         if (!handingOver) return;
         Log.i(ClockDream.TAG, "home: screensaver gone" + (readySent ? "" : " before we were ready"));
+        if (!tookOver && stopped) {
+            // Asleep and never took the picture: start afresh when we're back (onStart).
+            handingOver = false;
+            handler.removeCallbacks(finishHandover);
+            Handover.release(this);
+            return;
+        }
         if (!tookOver) {
             // It went without handing over (a key): show the background, from black.
             tookOver = true;
@@ -314,8 +321,12 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         handingOver = false;
         Handover.homeReady();
         Handover.release(this);
-        if (!tookOver) background.show(this);
-        setMode(HOME, true);
+        if (stopped) {
+            background.hide(this);  // no decoder for a window nobody sees; onStart shows it again
+        } else if (!tookOver) {
+            background.show(this);
+        }
+        setMode(HOME, !stopped);
     }
 
     // ---- Keys and the idle mode ----
@@ -380,9 +391,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         }
         screenLock.acquire();
         int sleepMs = Settings.Secure.getInt(getContentResolver(), "sleep_timeout", -1);
-        if (sleepMs > 0) {
-            handler.postAtTime(allowSleep, lastInputMs + Math.max(sleepMs, idleTimeoutMs()));
-        }
+        if (sleepMs > 0) handler.postAtTime(allowSleep, lastInputMs + sleepMs);
     }
 
     private void releaseScreen() {
@@ -436,6 +445,9 @@ public final class HomeActivity extends Activity implements Background.Host, Han
                 if (!handingOver) return;
                 Log.i(ClockDream.TAG, "home: same picture as the screensaver, it can go");
                 readySent = true;
+                // The short grace was for a picture that might never come; it's here now.
+                handler.removeCallbacks(finishHandover);
+                handler.postDelayed(finishHandover, HANDOVER_MAX_MS);
                 Handover.homeReady();  // it goes, then we get dreamGone()
             }));
             return;

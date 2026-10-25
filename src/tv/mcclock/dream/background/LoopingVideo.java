@@ -88,6 +88,11 @@ final class LoopingVideo implements Runnable {
         return surface;
     }
 
+    /** False once stopped, or once decoding failed (onVideoError is then on its way). */
+    boolean isRunning() {
+        return running;
+    }
+
     /** True once a frame has been sent to the current surface. */
     boolean hasShownFrame() {
         return shownOnSurface;
@@ -100,6 +105,7 @@ final class LoopingVideo implements Runnable {
      */
     boolean setSurface(Surface target, long timeoutMs) {
         if (target == surface) return true;
+        if (!running) return false;
         CountDownLatch done = new CountDownLatch(1);
         switched = done;
         switchTo = target;
