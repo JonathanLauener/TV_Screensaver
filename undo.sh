@@ -22,15 +22,22 @@ if [[ -f ".previous/$DEVICE" ]]; then
   { read -r components; read -r enabled; } < ".previous/$DEVICE" || true
   restore screensaver_components "${components:-}"
   [[ -n "${enabled:-}" ]] && restore screensaver_enabled "$enabled"
-  rm ".previous/$DEVICE"
 else
   echo "No saved settings for $DEVICE: going back to the TV's default screensaver." >&2
   adb shell settings delete secure screensaver_components >/dev/null
 fi
+home_ok=true
 if [[ -f ".previous/$DEVICE.home" ]]; then
-  adb shell cmd package set-home-activity "$(cat ".previous/$DEVICE.home")" >/dev/null
-  echo "Home screen: $(cat ".previous/$DEVICE.home")"
-  rm ".previous/$DEVICE.home"
+  if adb shell cmd package set-home-activity "$(cat ".previous/$DEVICE.home")" >/dev/null; then
+    echo "Home screen: $(cat ".previous/$DEVICE.home")"
+  else
+    home_ok=false
+    echo "Could not make $(cat ".previous/$DEVICE.home") the home screen again: pick one on the TV." >&2
+  fi
 fi
 adb uninstall tv.mcclock.dream || true
+# Forget the saved settings only once everything is back, so running this again still works.
+if $home_ok; then
+  rm -f ".previous/$DEVICE" ".previous/$DEVICE.home"
+fi
 echo "Screensaver: $(adb shell settings get secure screensaver_components | tr -d '\r')"

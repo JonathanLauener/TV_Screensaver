@@ -1,4 +1,4 @@
-package tv.mcclock.dream;
+package tv.mcclock.dream.background;
 
 import android.content.res.AssetFileDescriptor;
 import android.media.MediaCodec;
@@ -44,7 +44,7 @@ final class LoopingVideo implements Runnable {
         void onVideoError(LoopingVideo source, Exception error);
     }
 
-    private static final String TAG = ClockDream.TAG;
+    private static final String TAG = Backgrounds.TAG;
     private static final long TIMEOUT_US = 10_000;
     /** Frames go to the compositor this long before the refresh they are meant for. */
     private static final long RELEASE_AHEAD_NS = 30_000_000;
@@ -61,6 +61,7 @@ final class LoopingVideo implements Runnable {
     private volatile Surface switchTo;     // set by setSurface(), applied by the decode thread
     private volatile CountDownLatch switched;
     private volatile boolean switchOk;
+    private volatile boolean shownOnSurface;  // a frame has gone to the current surface
     private final Listener listener;
     private final Vsync vsync;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -85,6 +86,11 @@ final class LoopingVideo implements Runnable {
 
     Surface surface() {
         return surface;
+    }
+
+    /** True once a frame has been sent to the current surface. */
+    boolean hasShownFrame() {
+        return shownOnSurface;
     }
 
     /**
@@ -237,6 +243,7 @@ final class LoopingVideo implements Runnable {
                     codec.setVideoScalingMode(
                             MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
                     surface = target;
+                    shownOnSurface = false;
                     switchOk = true;
                     first = true;  // announce the first frame on the new surface
                 } catch (RuntimeException e) {
@@ -329,6 +336,7 @@ final class LoopingVideo implements Runnable {
             shown++;
             if (first) {
                 first = false;
+                shownOnSurface = true;
                 main.post(() -> listener.onFirstFrame(this));
             }
 

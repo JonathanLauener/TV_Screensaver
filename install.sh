@@ -34,9 +34,14 @@ fi
 if grep -qE 'mCurrentDream(Name)?=.*tv\.mcclock\.dream' <<<"$(adb shell dumpsys dreams)"; then
   adb shell input keyevent KEYCODE_WAKEUP
 fi
+# The same goes for the home screen's idle mode, which holds the screen on: a key that does
+# nothing else (it just brings the home screen back) counts as activity.
+if grep -qE 'ResumedActivity.*tv\.mcclock\.dream/\.HomeActivity' <<<"$(adb shell dumpsys activity activities)"; then
+  adb shell input keyevent KEYCODE_SHIFT_LEFT
+fi
 home=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN \
   -c android.intent.category.HOME | tr -d '\r' | tail -1)
-if [[ "$home" == */* && "$home" != "$HOME_ACTIVITY" ]]; then
+if [[ "$home" == */* && "$home" != "$HOME_ACTIVITY" && "$home" != */*ResolverActivity ]]; then
   echo "$home" > ".previous/$DEVICE.home"
 fi
 

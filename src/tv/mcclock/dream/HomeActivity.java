@@ -19,13 +19,13 @@ import android.media.tv.TvInputManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.KeyEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -39,8 +39,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
+import tv.mcclock.dream.background.Background;
+import tv.mcclock.dream.background.Backgrounds;
+
 /**
- * The home screen: the screensaver's video and clock, with the clock lifted and the apps below.
+ * The home screen: the screensaver's background and clock, with the clock lifted and the apps
+ * below.
  *
  * While it's in front it is also the screensaver: after the TV's screen saver delay without a
  * key press, the apps slide down off the screen and the clock down to the middle, which looks
@@ -49,8 +53,7 @@ import java.util.Locale;
  *
  * The app list, banners and HDMI inputs follow tv-detox's home screen (MIT, ~/tv-detox).
  */
-public final class HomeActivity extends Activity
-        implements SurfaceHolder.Callback, VideoEngine.Client {
+public final class HomeActivity extends Activity implements Background.Host, Handover.Home {
 
     private static final int HOME = 0, AMBIENT = 1;
     // Layout in pixels at 1080p, scaled to the real screen by px().
@@ -60,6 +63,11 @@ public final class HomeActivity extends Activity
     private static final int ROW_GAP = 8, BUTTON_GAP = 24, SHADE_TOP = 380;
     private static final long MOVE_MS = 750;
     private static final long HANDOVER_MAX_MS = 3000;
+    /**
+     * Android 9 stops us under the screensaver; once stopped our window can't get its video
+     * surface any more, so if the picture hasn't arrived by this long after, it never will.
+     */
+    private static final long STOPPED_GRACE_MS = 1000;
     private static final int NO_KEY = -1;
     private static final String APPS_ASSET = "home_apps.txt";
     private static final String PLAY_STORE = "com.android.vending";
@@ -72,34 +80,50 @@ public final class HomeActivity extends Activity
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable goAmbient = () -> setMode(AMBIENT, true);
     private final Runnable finishHandover = this::finishHandover;
+    private final Runnable allowSleep = this::releaseScreen;
     private final BroadcastReceiver packagesChanged = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            buildTiles();
+            // An update sends REMOVED then ADDED: rebuild once, on ADDED.
+            if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
+                    && intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
+                return;
+            }
+            String pkg = intent.getData() == null ? null : intent.getData().getSchemeSpecificPart();
+            if (PLAY_STORE.equals(pkg) || appList().contains(pkg)) buildTiles();
         }
     };
 
     private float scale;
+    private PowerManager.WakeLock screenLock;
+    private Background background;
     private View cover, shade;
     private PixelClockView clock;
     private LinearLayout panel, tilesRow, buttonsRow;
     private int mode = HOME;
-    private boolean handingOver, readySent;
+    // Taking over from the screensaver: claimed it, took the background, and it's on screen.
+    private boolean handingOver, tookOver, readySent;
+    private boolean stopped;
     private int swallowKey = NO_KEY;
+    private long lastInputMs;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         scale = getResources().getDisplayMetrics().heightPixels / 1080f;
+        // Not FLAG_KEEP_SCREEN_ON: its wake lock counts as user activity when it's let go, which
+        // would put off the TV's own sleep timer by another screensaver delay.
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        screenLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "McClock:home");
+        screenLock.setReferenceCounted(false);
         int match = ViewGroup.LayoutParams.MATCH_PARENT, wrap = ViewGroup.LayoutParams.WRAP_CONTENT;
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         root.setClipChildren(false);
 
-        SurfaceView video = new SurfaceView(this);
-        video.getHolder().addCallback(this);
-        root.addView(video, match, match);
+        background = Backgrounds.get(this);
+        root.addView(background.createView(this, this), match, match);
 
         // Darkens the bottom a little behind the apps, so names and buttons stay readable.
         shade = new View(this);
@@ -129,6 +153,7 @@ public final class HomeActivity extends Activity
         scroller.setHorizontalScrollBarEnabled(false);
         scroller.setClipChildren(false);
         scroller.setClipToPadding(false);
+        scroller.setFocusable(false);  // the tiles take the focus, never the empty row
         tilesRow = new LinearLayout(this);
         tilesRow.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         tilesRow.setClipChildren(false);
@@ -158,49 +183,73 @@ public final class HomeActivity extends Activity
     protected void onDestroy() {
         unregisterReceiver(packagesChanged);
         handler.removeCallbacksAndMessages(null);
+        releaseScreen();
+        Handover.release(this);
+        background.hide(this);
         super.onDestroy();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        // Coming up under the screensaver (HOME was pressed): start from its exact picture.
-        handingOver = Handover.claimForHome();
-        readySent = false;
-        // The video starts again on a new surface: black until its first frame.
-        cover.animate().cancel();
-        cover.setAlpha(1f);
-        cover.setVisibility(View.VISIBLE);
-        if (handingOver) {
-            setMode(AMBIENT, false);
-            handler.postDelayed(finishHandover, HANDOVER_MAX_MS);
+        stopped = false;
+        // Android 9 stops activities under the screensaver and starts them again once it's
+        // gone: in the middle of a hand-over, just carry on.
+        if (handingOver) return;
+        if (Handover.claimForHome(this)) {
+            beginHandover();
         } else {
+            // Black until the background is on screen again.
+            cover.animate().cancel();
+            cover.setAlpha(1f);
+            cover.setVisibility(View.VISIBLE);
             setMode(HOME, false);
+            background.show(this);
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (ambientEnabled()) {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        } else {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        }
+        lastInputMs = SystemClock.uptimeMillis();
+        keepScreenOn();
         if (mode == HOME) restartIdle();
+        // Back from something that didn't hide us (the TV's settings are a side panel): the
+        // background was suspended for it.
+        if (!handingOver) background.resume();
     }
 
     @Override
     protected void onPause() {
         handler.removeCallbacks(goAmbient);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        handler.removeCallbacks(allowSleep);
+        releaseScreen();
         super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        stopped = true;
+        // Under a screensaver we're taking over from we still want the picture; otherwise let
+        // the background go until we're back.
+        if (!handingOver) {
+            background.hide(this);
+        } else if (tookOver && !readySent) {
+            handler.removeCallbacks(finishHandover);
+            handler.postDelayed(finishHandover, STOPPED_GRACE_MS);
+        }
+        super.onStop();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (mode == AMBIENT && !handingOver) setMode(HOME, true);  // HOME in idle mode
+        if (handingOver) return;
+        if (Handover.claimForHome(this)) {
+            beginHandover();  // HOME in a screensaver over us, and we weren't stopped
+        } else if (mode == AMBIENT) {
+            setMode(HOME, true);  // HOME in idle mode
+        }
     }
 
     @Override
@@ -212,14 +261,60 @@ public final class HomeActivity extends Activity
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         // The screensaver has gone and we're on top: slide into the home screen.
-        if (hasFocus && handingOver && readySent) finishHandover();
+        if (hasFocus && handingOver && readySent && !Handover.dreamShowing()) finishHandover();
     }
 
+    // ---- Taking over from the screensaver ----
+
+    /**
+     * Coming up under the screensaver (HOME was pressed): look exactly like it, then take its
+     * background once it has been woken (takeOver), unless it goes first (dreamGone).
+     */
+    private void beginHandover() {
+        Log.i(ClockDream.TAG, "home: waiting to take over from the screensaver");
+        handingOver = true;
+        tookOver = readySent = false;
+        // No cover: the screensaver hides us until we show the same picture.
+        cover.animate().cancel();
+        cover.setVisibility(View.GONE);
+        setMode(AMBIENT, false);
+        if (Handover.dreamWoken()) takeOver();
+    }
+
+    @Override
+    public void takeOver() {
+        if (!handingOver || tookOver) return;
+        tookOver = true;
+        Log.i(ClockDream.TAG, "home: taking the background");
+        handler.removeCallbacks(finishHandover);
+        handler.postDelayed(finishHandover, stopped ? STOPPED_GRACE_MS : HANDOVER_MAX_MS);
+        background.show(this);
+    }
+
+    @Override
+    public void dreamGone() {
+        if (!handingOver) return;
+        Log.i(ClockDream.TAG, "home: screensaver gone" + (readySent ? "" : " before we were ready"));
+        if (!tookOver) {
+            // It went without handing over (a key): show the background, from black.
+            tookOver = true;
+            cover.setAlpha(1f);
+            cover.setVisibility(View.VISIBLE);
+            background.show(this);
+        } else if (readySent && hasWindowFocus()) {
+            finishHandover();
+        }
+    }
+
+    /** Done taking over (or giving up): make sure the screensaver goes, and slide home. */
     private void finishHandover() {
         handler.removeCallbacks(finishHandover);
         if (!handingOver) return;
+        Log.i(ClockDream.TAG, "home: hand-over done" + (readySent ? "" : " (timed out)"));
         handingOver = false;
-        cover.setVisibility(View.GONE);
+        Handover.homeReady();
+        Handover.release(this);
+        if (!tookOver) background.show(this);
         setMode(HOME, true);
     }
 
@@ -227,6 +322,8 @@ public final class HomeActivity extends Activity
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        lastInputMs = SystemClock.uptimeMillis();
+        keepScreenOn();
         int code = event.getKeyCode();
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
                 || code == KeyEvent.KEYCODE_VOLUME_MUTE) {
@@ -257,12 +354,39 @@ public final class HomeActivity extends Activity
         if (ambientEnabled()) handler.postDelayed(goAmbient, idleTimeoutMs());
     }
 
-    /** Idle mode only when this app's screensaver is the one picked in the TV's settings. */
+    /**
+     * Idle mode only when the TV would start a screensaver and this app's is the one picked.
+     * Meanwhile we keep the screen on ourselves, so the system's doesn't start over us.
+     */
     private boolean ambientEnabled() {
         ContentResolver cr = getContentResolver();
         if (Settings.Secure.getInt(cr, "screensaver_enabled", 1) == 0) return false;
+        if (Settings.Secure.getInt(cr, "screensaver_activate_on_sleep", 1) == 0) return false;
         String picked = Settings.Secure.getString(cr, "screensaver_components");
         return picked != null && picked.startsWith(getPackageName() + "/");
+    }
+
+    /**
+     * Holds the screen on while we're in front, so the system screensaver doesn't start over
+     * the home screen's own idle mode. In idle mode, lets go once the TV's "put to sleep"
+     * time (if set) has passed since the last key, so it goes to sleep as it would after its
+     * own screensaver.
+     */
+    private void keepScreenOn() {
+        handler.removeCallbacks(allowSleep);
+        if (!ambientEnabled()) {
+            releaseScreen();
+            return;
+        }
+        screenLock.acquire();
+        int sleepMs = Settings.Secure.getInt(getContentResolver(), "sleep_timeout", -1);
+        if (sleepMs > 0) {
+            handler.postAtTime(allowSleep, lastInputMs + Math.max(sleepMs, idleTimeoutMs()));
+        }
+    }
+
+    private void releaseScreen() {
+        if (screenLock.isHeld()) screenLock.release();
     }
 
     private long idleTimeoutMs() {
@@ -301,33 +425,24 @@ public final class HomeActivity extends Activity
         }
     }
 
-    // ---- Video ----
+    // ---- Background ----
 
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        VideoEngine.get(this).attach(this, holder.getSurface());
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        VideoEngine.get(this).detach(this);
-    }
-
-    @Override
-    public void onFirstFrame() {
-        if (handingOver) {
+    public void onBackgroundShown() {
+        if (handingOver && Handover.claimed()) {
             // Same picture as the screensaver now. Let a couple of frames reach the screen,
             // then tell it to go; we slide on once we have the focus (onWindowFocusChanged).
-            cover.setVisibility(View.GONE);
             cover.postOnAnimation(() -> cover.postOnAnimation(() -> {
+                if (!handingOver) return;
+                Log.i(ClockDream.TAG, "home: same picture as the screensaver, it can go");
                 readySent = true;
-                Handover.homeReady();
+                Handover.homeReady();  // it goes, then we get dreamGone()
             }));
             return;
+        }
+        if (handingOver) {
+            readySent = true;  // the screensaver has gone already
+            if (hasWindowFocus()) finishHandover();
         }
         if (cover.getVisibility() != View.VISIBLE || cover.getAlpha() < 1f) return;
         cover.animate().alpha(0f).setDuration(400)
@@ -337,6 +452,9 @@ public final class HomeActivity extends Activity
     // ---- Apps and buttons ----
 
     private void buildTiles() {
+        // Keep the focus where it was (by package or label) across a rebuild.
+        View focused = panel.findFocus();
+        Object focusedTag = focused == null ? null : focused.getTag();
         tilesRow.removeAllViews();
         buttonsRow.removeAllViews();
         PackageManager pm = getPackageManager();
@@ -348,6 +466,7 @@ public final class HomeActivity extends Activity
             AppTile tile = new AppTile(this, banner(pm, pkg, launch, w, h), label(pm, pkg), w, h,
                     scale);
             tile.setOnClickListener(v -> start(launch));
+            tile.setTag(pkg);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             if (tilesRow.getChildCount() > 0) lp.leftMargin = px(TILE_GAP);
@@ -365,12 +484,20 @@ public final class HomeActivity extends Activity
         String settings = "de".equals(Locale.getDefault().getLanguage()) ? "Einstellungen" : "Settings";
         addButton(settings, bp, v -> start(new Intent(Settings.ACTION_SETTINGS)));
 
-        if (first != null) first.requestFocus();
+        View again = focusedTag == null ? null : panel.findViewWithTag(focusedTag);
+        if (again != null) {
+            again.requestFocus();
+        } else if (first != null) {
+            first.requestFocus();
+        } else if (buttonsRow.getChildCount() > 0) {
+            buttonsRow.getChildAt(0).requestFocus();
+        }
     }
 
     private void addButton(String label, int bp, View.OnClickListener click) {
         McButton b = new McButton(this, label, bp);
         b.setOnClickListener(click);
+        b.setTag("button:" + label);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         if (buttonsRow.getChildCount() > 0) lp.leftMargin = px(BUTTON_GAP);
@@ -392,13 +519,13 @@ public final class HomeActivity extends Activity
         return out;
     }
 
-    /** Starts something on top, after freeing the video decoder for it. */
+    /** Starts something on top, after freeing what the background holds (such as a video decoder). */
     private void start(Intent intent) {
-        VideoEngine.get(this).release();
+        background.suspend();
         try {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (RuntimeException e) {
-            VideoEngine.get(this).resume();
+            background.resume();
         }
     }
 
@@ -416,7 +543,7 @@ public final class HomeActivity extends Activity
             if (t.resolveActivity(getPackageManager()) != null) tries.add(t);
         }
         tries.add(view);
-        VideoEngine.get(this).release();
+        background.suspend();
         for (Intent t : tries) {
             try {
                 startActivity(t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -424,7 +551,7 @@ public final class HomeActivity extends Activity
             } catch (RuntimeException ignored) {
             }
         }
-        VideoEngine.get(this).resume();
+        background.resume();
     }
 
     /** The TV's own HDMI inputs (not devices behind them), in order, skipping hidden ones. */

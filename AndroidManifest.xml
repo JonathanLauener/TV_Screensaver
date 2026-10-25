@@ -5,6 +5,9 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- The home screen keeps the screen on in its idle mode, instead of the system screensaver. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Android 11+ only shows a home screen the apps it asks for. -->
     <queries>
         <intent>
