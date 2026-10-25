@@ -1,4 +1,4 @@
-package tv.mcclock.dream;
+package tv.mcclock.dream.background;
 
 import android.view.Choreographer;
 

@@ -3,30 +3,35 @@ package tv.mcclock.dream;
 import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.service.dreams.DreamService;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import tv.mcclock.dream.background.Background;
+import tv.mcclock.dream.background.Backgrounds;
+
 /**
- * Screensaver: the bundled video on a seamless loop, with the time in the Minecraft font
+ * Screensaver: the background (see {@link Background}) with the time in the Minecraft font
  * centred on top. The home screen's idle mode looks exactly the same, so the two can hand over.
  */
-public final class ClockDream extends DreamService
-        implements SurfaceHolder.Callback, VideoEngine.Client {
+public final class ClockDream extends DreamService implements Background.Host {
 
     static final String TAG = "McClock";
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
-    /** Woken by the system (HOME, most likely): how long to wait for the home screen to claim. */
-    private static final long CLAIM_WAIT_MS = 500;
+    /**
+     * Woken by the system (HOME, most likely): how long to wait for the home screen to claim.
+     * The home screen starts only once the app below has paused, which can take a while.
+     */
+    private static final long CLAIM_WAIT_MS = 2000;
     /** ...and, once claimed, the longest to wait for it to be ready. */
     private static final long HANDOVER_MAX_MS = 2500;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private Background background;
     private View cover;
     private boolean wokenByInput;
 
@@ -42,17 +47,17 @@ public final class ClockDream extends DreamService
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
-        SurfaceView video = new SurfaceView(this);
-        video.getHolder().addCallback(this);
-        root.addView(video, MATCH, MATCH);
+        background = Backgrounds.get(this);
+        root.addView(background.createView(this, this), MATCH, MATCH);
 
-        // Black until the first video frame is on screen, then fades away.
+        // Black until the background is on screen, then fades away.
         cover = new View(this);
         cover.setBackgroundColor(Color.BLACK);
         root.addView(cover, MATCH, MATCH);
 
         root.addView(new PixelClockView(this), MATCH, MATCH);
         setContentView(root);
+        background.show(this);
     }
 
     @Override
@@ -63,20 +68,38 @@ public final class ClockDream extends DreamService
 
     @Override
     public void onDreamingStopped() {
-        stopVideo();
+        cleanUp();
         super.onDreamingStopped();
     }
 
     @Override
     public void onDetachedFromWindow() {
-        stopVideo();
+        cleanUp();
         super.onDetachedFromWindow();
     }
 
-    private void stopVideo() {
+    private void cleanUp() {
         handler.removeCallbacksAndMessages(null);
-        VideoEngine.get(this).detach(this);
+        if (background != null) background.hide(this);
         Handover.dreamGone(this);
+    }
+
+    /** Ends the screensaver now. */
+    void leave() {
+        Handover.dreamFinishing(this);
+        finish();
+    }
+
+    /**
+     * The home screen shows the same picture underneath: hide our window first, so it shows
+     * through, and only then go. Taking the window down while it's showing would flash black
+     * for a moment (the video's black backdrop outlives the video by a frame or so).
+     */
+    void handOver() {
+        Handover.dreamFinishing(this);
+        View decor = getWindow().getDecorView();
+        decor.setVisibility(View.INVISIBLE);
+        decor.postOnAnimation(() -> decor.postOnAnimation(() -> decor.postOnAnimation(this::finish)));
     }
 
     @Override
@@ -95,36 +118,25 @@ public final class ClockDream extends DreamService
     public void onWakeUp() {
         // A key press in the screensaver: back to whatever was underneath, straight away.
         if (wokenByInput) {
-            finish();
+            Log.i(TAG, "screensaver: woken by a key");
+            leave();
             return;
         }
-        // Woken by the system. For HOME it starts the home screen next; give it a moment to
-        // claim the hand-over, then up to HANDOVER_MAX_MS to be ready (it calls finish()).
+        Log.i(TAG, "screensaver: woken by the system" + (Handover.claimed() ? ", home waiting" : ""));
+        // Woken by the system. For HOME it starts the home screen too; give it a moment to
+        // claim the hand-over, then up to HANDOVER_MAX_MS to be ready (it calls leave()).
+        Handover.dreamWoken(this);
         handler.postDelayed(() -> {
             if (Handover.claimed()) {
-                handler.postDelayed(this::finish, HANDOVER_MAX_MS);
+                handler.postDelayed(this::leave, HANDOVER_MAX_MS);
             } else {
-                finish();
+                leave();
             }
         }, CLAIM_WAIT_MS);
     }
 
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        VideoEngine.get(this).attach(this, holder.getSurface());
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        VideoEngine.get(this).detach(this);
-    }
-
-    @Override
-    public void onFirstFrame() {
+    public void onBackgroundShown() {
         if (cover == null || cover.getVisibility() != View.VISIBLE || cover.getAlpha() < 1f) return;
         cover.animate().alpha(0f).setStartDelay(50).setDuration(600)
                 .withEndAction(() -> cover.setVisibility(View.GONE));

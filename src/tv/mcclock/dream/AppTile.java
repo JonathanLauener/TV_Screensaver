@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.os.Build;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
@@ -36,6 +37,8 @@ final class AppTile extends View {
         gap = Math.round(18 * scale);
         setFocusable(true);
         setClickable(true);
+        // Android 8+ would wash a focused view with a translucent highlight: we draw our own.
+        if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
         setPivotX(bannerW / 2f);
         setPivotY(bannerH / 2f);
     }
@@ -51,7 +54,9 @@ final class AppTile extends View {
     protected void onFocusChanged(boolean gained, int direction, Rect previous) {
         super.onFocusChanged(gained, direction, previous);
         float s = gained ? FOCUS_SCALE : 1f;
-        animate().scaleX(s).scaleY(s).setDuration(150).setInterpolator(new DecelerateInterpolator());
+        // Redraw each step: the caption is drawn unscaled, against the current scale.
+        animate().scaleX(s).scaleY(s).setDuration(150).setInterpolator(new DecelerateInterpolator())
+                .setUpdateListener(a -> invalidate());
         invalidate();
     }
 

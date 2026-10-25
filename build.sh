@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds MinecraftClock.apk without Gradle: aapt2 -> javac -> d8 -> zipalign -> apksigner.
-#   ./build.sh                          uses ~/screensaver.webm
-#   VIDEO=/path/to/loop.webm ./build.sh another video
+#   ./build.sh                                    background: ~/screensaver.webm
+#   BACKGROUND_FILE=/path/to/loop.webm ./build.sh   another video (webm, mp4, mkv)
+#   BACKGROUND_FILE=/path/to/picture.png ./build.sh a still image (png, jpg, webp)
+# VIDEO=... works too, as another name for BACKGROUND_FILE.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -9,7 +11,7 @@ VERSION_CODE=1
 VERSION_NAME=1.0
 MIN_SDK=24          # the target TV runs Android 9 (API 28)
 TARGET_SDK=34
-VIDEO=${VIDEO:-$HOME/screensaver.webm}
+BACKGROUND_FILE=${BACKGROUND_FILE:-${VIDEO:-$HOME/screensaver.webm}}
 APK=MinecraftClock.apk
 
 ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
@@ -20,7 +22,13 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
 fi
 [[ -x "${JAVA_HOME:-}/bin/javac" ]] || { echo "JDK not found: set JAVA_HOME" >&2; exit 1; }
 [[ -f "$PLATFORM" && -x "$BT/aapt2" ]] || { echo "Android SDK not found at $ANDROID_HOME" >&2; exit 1; }
-[[ -f "$VIDEO" ]] || { echo "Video not found: $VIDEO" >&2; exit 1; }
+[[ -f "$BACKGROUND_FILE" ]] || { echo "Background not found: $BACKGROUND_FILE" >&2; exit 1; }
+# The file's type picks what draws it (src/tv/mcclock/dream/background/Backgrounds.java).
+EXT=$(tr '[:upper:]' '[:lower:]' <<<"${BACKGROUND_FILE##*.}")
+case "$EXT" in
+  webm|mp4|mkv|png|jpg|jpeg|webp) ;;
+  *) echo "Unsupported background type .$EXT: use webm, mp4, mkv, png, jpg or webp" >&2; exit 1 ;;
+esac
 export JAVA_HOME PATH="$JAVA_HOME/bin:$PATH"
 
 OUT=build
@@ -29,11 +37,12 @@ mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/dex" "$OUT/assets"
 
 echo "[1/6] resources"
 [[ -d assets ]] && cp -r assets/. "$OUT/assets/"
-cp "$VIDEO" "$OUT/assets/screensaver.webm"
+rm -f "$OUT"/assets/background.*
+cp "$BACKGROUND_FILE" "$OUT/assets/background.$EXT"
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
-# The video stays uncompressed so it can be read straight out of the APK.
+# Videos stay uncompressed so they can be read straight out of the APK.
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest AndroidManifest.xml -A "$OUT/assets" \
-  -0 webm --java "$OUT/gen" --min-sdk-version $MIN_SDK --target-sdk-version $TARGET_SDK \
+  -0 webm -0 mkv -0 mp4 --java "$OUT/gen" --min-sdk-version $MIN_SDK --target-sdk-version $TARGET_SDK \
   --version-code $VERSION_CODE --version-name $VERSION_NAME "$OUT/res.zip"
 
 echo "[2/6] javac"
@@ -66,5 +75,5 @@ fi
 
 echo "[6/6] verify"
 "$BT/apksigner" verify --min-sdk-version $MIN_SDK "$APK"
-unzip -v "$APK" | grep -E 'screensaver.webm'
+unzip -v "$APK" | grep -E 'assets/background\.'
 ls -lh "$APK"

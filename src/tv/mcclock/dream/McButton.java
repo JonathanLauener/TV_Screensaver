@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.os.Build;
 import android.view.View;
 
 /**
@@ -29,6 +30,8 @@ final class McButton extends View {
         this.bp = bp;
         setFocusable(true);
         setClickable(true);
+        // Android 8+ would wash a focused view with a translucent highlight: we draw our own.
+        if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
     }
 
     @Override
