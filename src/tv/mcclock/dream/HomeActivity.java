@@ -200,7 +200,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             beginHandover();
         } else {
             // Black until the background is on screen again.
-            cover.animate().cancel();
+            Anim.cancelAll(cover);
             cover.setAlpha(1f);
             cover.setVisibility(View.VISIBLE);
             setMode(HOME, false);
@@ -275,7 +275,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         handingOver = true;
         tookOver = readySent = false;
         // No cover: the screensaver hides us until we show the same picture.
-        cover.animate().cancel();
+        Anim.cancelAll(cover);
         cover.setVisibility(View.GONE);
         setMode(AMBIENT, false);
         if (Handover.dreamWoken()) takeOver();
@@ -402,17 +402,17 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         float panelY = home ? 0 : getResources().getDisplayMetrics().heightPixels - px(PANEL_TOP)
                 + px(40);
         float shadeAlpha = home ? 1 : 0;
-        clock.animate().cancel();
-        panel.animate().cancel();
-        shade.animate().cancel();
+        Anim.cancelAll(clock);
+        Anim.cancelAll(panel);
+        Anim.cancelAll(shade);
         if (animate) {
             PathInterpolator ease = new PathInterpolator(0.3f, 0f, 0.15f, 1f);
             // Going home the clock leads and the apps follow; going idle the apps leave first.
-            clock.animate().translationY(clockY).setInterpolator(ease).setDuration(MOVE_MS)
-                    .setStartDelay(home ? 0 : 120);
-            panel.animate().translationY(panelY).setInterpolator(ease).setDuration(MOVE_MS)
-                    .setStartDelay(home ? 90 : 0).withLayer();
-            shade.animate().alpha(shadeAlpha).setDuration(MOVE_MS).setStartDelay(0);
+            Anim.of(clock, View.TRANSLATION_Y, clockY, MOVE_MS).ease(ease).delay(home ? 0 : 120)
+                    .start();
+            Anim.of(panel, View.TRANSLATION_Y, panelY, MOVE_MS).ease(ease).delay(home ? 90 : 0)
+                    .withLayer().start();
+            Anim.of(shade, View.ALPHA, shadeAlpha, MOVE_MS).start();
         } else {
             clock.setTranslationY(clockY);
             panel.setTranslationY(panelY);
@@ -445,8 +445,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             if (hasWindowFocus()) finishHandover();
         }
         if (cover.getVisibility() != View.VISIBLE || cover.getAlpha() < 1f) return;
-        cover.animate().alpha(0f).setDuration(400)
-                .withEndAction(() -> cover.setVisibility(View.GONE));
+        Anim.of(cover, View.ALPHA, 0f, 400).then(() -> cover.setVisibility(View.GONE)).start();
     }
 
     // ---- Apps and buttons ----
@@ -482,7 +481,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             addButton(inputLabel(input), bp, v -> openInput(id));
         }
         String settings = "de".equals(Locale.getDefault().getLanguage()) ? "Einstellungen" : "Settings";
-        addButton(settings, bp, v -> start(new Intent(Settings.ACTION_SETTINGS)));
+        addButton(settings, bp, v -> openSettings());
 
         View again = focusedTag == null ? null : panel.findViewWithTag(focusedTag);
         if (again != null) {
@@ -517,6 +516,17 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         }
         out.remove(getPackageName());
         return out;
+    }
+
+    /**
+     * The TV's settings are a side panel over us and need no video decoder: the background
+     * keeps going behind it.
+     */
+    private void openSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException ignored) {
+        }
     }
 
     /** Starts something on top, after freeing what the background holds (such as a video decoder). */

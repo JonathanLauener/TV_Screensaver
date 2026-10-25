@@ -138,7 +138,7 @@ public final class ClockDream extends DreamService implements Background.Host {
     @Override
     public void onBackgroundShown() {
         if (cover == null || cover.getVisibility() != View.VISIBLE || cover.getAlpha() < 1f) return;
-        cover.animate().alpha(0f).setStartDelay(50).setDuration(600)
-                .withEndAction(() -> cover.setVisibility(View.GONE));
+        Anim.of(cover, View.ALPHA, 0f, 600).delay(50).then(() -> cover.setVisibility(View.GONE))
+                .start();
     }
 }

@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 02:45_
+_Last updated: 2026-10-25 03:30_
 
 ## Goal
 
@@ -106,43 +106,40 @@ Same APK and process as the dream, so both can share one decoder.
 - Make it the default home: `cmd package set-home-activity tv.mcclock.dream/.HomeActivity`.
   The undo restores `com.ansub.tvhome/.MainActivity`.
 
-## Current state (02:45)
+## Current state (03:30)
 
 Requirement 4 is done: package `tv.mcclock.dream.background` (public `Background` + `Backgrounds`;
 `VideoBackground`, `ImageBackground`, `LoopingVideo`, `Vsync`). The background is picked by the file
 `build.sh` bundles: `BACKGROUND_FILE=... ./build.sh` (not `BACKGROUND`: that name is set in the
 user's shell to a colour). Contract: `show(host)` (last caller gets the picture; always answered by
-`onBackgroundShown`), `hide(host)`, `suspend()/resume()`.
+`onBackgroundShown`), `hide(host)`, `suspend()/resume()`. Video and UI are separate layers: the video
+is a SurfaceView on the TV's hardware video plane; slides only move views in the window layer.
 
-A review workflow (3 lenses + verifiers) found 22 issues; all fixed except #13 (only if seen on TV).
-
-Verified this session:
-- Android 9 puts activities under a screensaver to sleep (resume, pause ~15 ms later, stop
-  "sleeping"); a stopped window's SurfaceView loses its surface via the hidden
-  `SurfaceView.windowStopped()`. `KeptSurfaceView` overrides it as a no-op: works on API 28.
-- The hand-over now: home claims (Handover), takes the background only after the dream is woken,
-  the video moves into the sleeping home's kept surface, then the dream goes, then the slide.
-  Works on the Android 9 emulator (AVD `mcclock_tv28`, ANDROID_AVD_HOME=~/.config/.android/avd,
-  stock launcher disabled there) and on the TV (dream gone ~1 s after HOME).
-- On the TV a ~100-300 ms BLACK frame (centred clock on black) appeared as the dream left. The
-  home's video layer was NOT hidden (SurfaceFlinger flags 0x2); cause = the dream's own teardown
-  (its SurfaceView's black backdrop layer). Fix written but NOT yet tested: `ClockDream.handOver()`
-  hides the dream's decor view, waits 3 frames, then finishes; the home slides only once
-  `!Handover.dreamShowing()`.
-- Idle mode uses its own SCREEN_BRIGHT wake lock (FLAG_KEEP_SCREEN_ON's lock pokes user activity
-  when released); `sleep_timeout` honoured (TV has -1 = never). Tested on API 28.
+Verified on the TV (this branch is installed there as home screen + screensaver):
+- Home screen: banners in apps.txt order, Play Store, HDMI 1-4, Einstellungen; 4K VP9 on the MTK
+  decoder locked to 60 Hz.
+- HOME during the screensaver over an app: seamless hand-over, no black frame (recorded), dream gone
+  ~1 s after HOME, then the slide; 60.0 fps / 0 late in the next stats minute.
+  How: Android 9 puts activities under a screensaver to sleep (resume, pause ~15 ms later, stop
+  "sleeping"); `KeptSurfaceView` overrides the hidden `SurfaceView.windowStopped()` as a no-op so
+  the home keeps its video surface; the video moves there under the dream; then
+  `ClockDream.handOver()` hides the dream window, waits 3 frames and finishes (taking the window down
+  while visible flashed black: its SurfaceView's black backdrop layer).
+- The TV has animator_duration_scale=0 (also transition/window = 0): ViewPropertyAnimator jumps.
+  All animations use `Anim` (Choreographer-driven) instead. Idle -> ambient -> key slides animate.
+- Settings button: Sony settings is a translucent side panel; the video keeps playing behind it
+  (no suspend for it) and BACK continues.
+- Idle mode holds its own SCREEN_BRIGHT wake lock (FLAG_KEEP_SCREEN_ON's lock pokes user activity
+  when released) and honours `sleep_timeout` (the TV has -1 = never). Tested on API 28 emulator.
 - TV screenrecord: only `--size 960x540 --bit-rate 4000000` gives decodable (~10 fps) video.
 - Test helpers (outside the repo): ~/.cache/mcclock-tv-test/{tv-handover.sh,handover.sh}.
-- The TV currently runs this branch as home screen + screensaver (`./undo.sh` restores tv-detox
-  and Backdrop). The API 28 emulator may still be running (workspace 5).
+  Android 9 TV emulator AVD `mcclock_tv28` (ANDROID_AVD_HOME=~/.config/.android/avd; stock
+  launcher disabled there). Hyprland rule puts emulator windows on workspace 5.
 
 ## Next steps
 
-1. Install on the TV and rerun `~/.cache/mcclock-tv-test/tv-handover.sh`; check the frames around
-   the hand-over for the black frame (ffmpeg contact sheet / signalstats YAVG).
-2. Resume the second review: Workflow scriptPath
-   ~/.claude/projects/-home-deep-minecraft-clock-tv/<session>/workflows/scripts/review-fix-round-*.js
-   with resumeFromRunId wf_60b05697-541 (it was stopped mid-run; it predates the handOver() change).
-3. On the TV: Settings button (translucent panel) -> BACK -> video must restart; idle -> ambient ->
-   key; 60 fps stats after a hand-over (`adb logcat -s McClock`).
-4. Commit, push to GitHub (`git@github-mcclock:...`), merge `home-screen` into `main`.
+1. Final review workflow (review-final, 3 lenses + verifiers) was running at 03:30: apply what it
+   confirms, retest on the TV.
+2. Push `home-screen` to GitHub (`git@github-mcclock:JonathanLauener/TV_Screensaver.git`), merge to
+   `main`.
+3. Open questions for the user: keep the stock animation scales at 0 (we don't need them now)?
