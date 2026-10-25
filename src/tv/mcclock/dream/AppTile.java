@@ -55,8 +55,11 @@ final class AppTile extends View {
         super.onFocusChanged(gained, direction, previous);
         float s = gained ? FOCUS_SCALE : 1f;
         // Redraw each step: the caption is drawn unscaled, against the current scale.
-        animate().scaleX(s).scaleY(s).setDuration(150).setInterpolator(new DecelerateInterpolator())
-                .setUpdateListener(a -> invalidate());
+        Anim.of(this, View.SCALE_X, s, 150).ease(new DecelerateInterpolator())
+                .onStep(v -> {
+                    v.setScaleY(v.getScaleX());
+                    v.invalidate();
+                }).start();
         invalidate();
     }
 

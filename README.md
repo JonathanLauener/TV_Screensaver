@@ -30,6 +30,9 @@ implementations, picked by the type of the file `build.sh` bundles; another rend
 class there. The screensaver hands its running background over to the home screen, so the
 switch between them has no visible cut.
 
+The slides use their own animation driver (`Anim`), because the TV's animation speed setting is
+off, which would make Android's animations jump to their end.
+
 Android 9 puts every activity under a screensaver to sleep, which normally takes a SurfaceView's
 surface away. The video's SurfaceView keeps it (`KeptSurfaceView`), so the home screen can take
 the picture while the screensaver is still on top.
