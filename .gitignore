@@ -11,3 +11,7 @@ keystore/
 
 # The video is bundled at build time from ~/screensaver.webm (see build.sh)
 *.webm
+
+# The music is bundled at build time from soundtrack/ (see build.sh). It's C418's, so it stays
+# out of the repository.
+soundtrack/

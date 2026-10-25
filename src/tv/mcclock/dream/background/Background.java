@@ -26,6 +26,16 @@ public interface Background {
          * an error). Until then the view may be blank, so the host can keep it covered.
          */
         void onBackgroundShown();
+
+        /**
+         * Whether the host's view should keep its surface while the host is stopped. Android 9
+         * stops every activity under a screensaver ("sleeping") although its window stays, and
+         * a home screen there has to take the picture before the screensaver goes. Asked at
+         * each stop; otherwise a stop lets go of the surface, like a plain SurfaceView.
+         */
+        default boolean keepSurfaceWhileStopped() {
+            return false;
+        }
     }
 
     /** A full-screen view for one host's window, meant to go at the back of its layout. */
@@ -53,4 +63,11 @@ public interface Background {
     void suspend();
 
     void resume();
+
+    /**
+     * Something a stopped host was keeping its view's surface for has ended (the screensaver it
+     * was asleep under has gone): views whose host doesn't want the picture let go of it.
+     */
+    default void recheckKeptSurfaces() {
+    }
 }

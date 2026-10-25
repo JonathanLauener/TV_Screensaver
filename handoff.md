@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 04:50_
+_Last updated: 2026-10-25 19:45_
 
 ## Goal
 
@@ -177,3 +177,28 @@ list, scrolling, BACK, idle mode from a menu. Another session (hianime-tv) asked
    TV passed (2x HOME hand-over, key in the screensaver).
 2. Open question for the user: the TV's animation scales are 0 (tv-detox?); the app no longer
    depends on them.
+3. `soundtrack/` (2026-10-25): 24 MP3s of C418's Minecraft Volume Alpha, numbered 01-24
+   (~91 MB), downloaded with yt-dlp from playlist PLefKpFQ8Pvy5aCLAGHD8Zmzsdljos-t2l (items
+   1-25, minus a duplicate "Dry Hands"). Copyrighted: in .gitignore, never commit or push it.
+   build.sh bundles it uncompressed as assets/music/01.mp3.. (`MUSIC_DIR`, empty = none).
+   `Music` (process singleton) plays it in random order with 1-30 s gaps (the game's menu
+   music) while ClockDream or HomeActivity holds it: hand-over keeps the same track; starting
+   an app/input fades it out; a key in the screensaver stops it; only plays if
+   !isMusicActive() and audio focus is granted; keeps the focus between tracks (waits out
+   transient losses such as voice search). Verified on the TV (19:15-19:40): screensaver over an
+   app + key (music started 3.4 s in, stopped, focus released); + HOME (same track carried on
+   through the hand-over); home + Sony side panel + screensaver + key (carried on); app from
+   the home button (stopped), HOME (new track). build.sh strips a background video's sound.
+4. Black home screen found while testing (1 in 4 runs): after the home slept under the
+   screensaver and was woken by a key, an app + HOME left it black. KeptSurfaceView ignored
+   every windowStopped, so a normal stop relied on the window-visibility cue, which sometimes
+   never came: the SurfaceView kept a dead surface, MediaCodec.configure failed twice
+   (nativeWindowConnect -19), the MediaPlayer fallback threw and nothing retried. Fixed:
+   Background.Host.keepSurfaceWhileStopped() (home: Handover.dreamShowing()); any other stop
+   hides the view (surface released at once); a decoder that fails before its first frame gets
+   a new surface; a failed fallback retries after 5 s. Verified on the TV: A-D sequence twice
+   with 0 failures, hand-over still seamless. Known side effect: a screensaver that starts over
+   the home itself (side panel open) comes before Handover knows of it, so the home lets its
+   surface go; HOME in that screensaver then fades in from black instead of sliding seamlessly.
+   TV logging: the main buffer rolls over within ~90 s, stream `logcat -s McClock` to a file.
+   In Claude's bash, `grep` is a wrapper that can return nothing: use `command grep`.

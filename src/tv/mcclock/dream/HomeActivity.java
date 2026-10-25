@@ -100,6 +100,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     private float scale;
     private PowerManager.WakeLock screenLock;
     private Background background;
+    private Music music;
     private View cover, shade;
     private PixelClockView clock;
     private LinearLayout panel, tiles, buttonsRow;
@@ -133,6 +134,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
 
         background = Backgrounds.get(this);
         root.addView(background.createView(this, this), match, match);
+        music = Music.get(this);
 
         // Darkens the bottom a little behind the apps, so names and buttons stay readable.
         shade = new View(this);
@@ -213,7 +215,9 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         menu.clear();
         releaseScreen();
         Handover.release(this);
+        Handover.homeUnderDream(false);
         background.hide(this);
+        music.release(this, false);
         super.onDestroy();
     }
 
@@ -221,6 +225,8 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     protected void onStart() {
         super.onStart();
         stopped = false;
+        Handover.homeUnderDream(false);
+        music.hold(this);  // carries on from the screensaver's, if it was playing
         // Android 9 stops activities under the screensaver and starts them again once it's
         // gone: in the middle of a hand-over, just carry on.
         if (handingOver) return;
@@ -242,6 +248,8 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         lastInputMs = SystemClock.uptimeMillis();
         keepScreenOn();
         if (mode == HOME) restartIdle();
+        // Back from an app that never covered us (a dialog, a crash message): music again.
+        music.hold(this);
         // Back from something that didn't hide us (the TV's settings are a side panel): the
         // background was suspended for it.
         if (!handingOver) background.resume();
@@ -260,10 +268,13 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     @Override
     protected void onStop() {
         stopped = true;
+        // Asleep under the screensaver (Android 9 does that): a key in it brings us back.
+        Handover.homeUnderDream(Handover.dreamShowing() && !isFinishing());
         // Under a screensaver we're taking over from we still want the picture; otherwise let
         // the background go until we're back.
         if (!handingOver) {
             background.hide(this);
+            music.release(this, false);
         } else if (tookOver && !readySent) {
             handler.removeCallbacks(finishHandover);
             handler.postDelayed(finishHandover, STOPPED_GRACE_MS);
@@ -334,6 +345,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             handingOver = false;
             handler.removeCallbacks(finishHandover);
             Handover.release(this);
+            music.release(this, false);  // nobody sees us (the TV may be going to sleep)
             return;
         }
         if (!tookOver) {
@@ -357,6 +369,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         Handover.release(this);
         if (stopped) {
             background.hide(this);  // no decoder for a window nobody sees; onStart shows it again
+            music.release(this, false);  // nor music; onStart holds it again
         } else if (!tookOver) {
             background.show(this);
         }
@@ -553,6 +566,12 @@ public final class HomeActivity extends Activity implements Background.Host, Han
 
     // ---- Background ----
 
+    /** Asleep under the screensaver, our view keeps its surface so we can take the picture. */
+    @Override
+    public boolean keepSurfaceWhileStopped() {
+        return Handover.dreamShowing();
+    }
+
     @Override
     public void onBackgroundShown() {
         if (handingOver && Handover.claimed()) {
@@ -690,13 +709,18 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         return out;
     }
 
-    /** Starts something on top, after freeing what the background holds (such as a video decoder). */
+    /**
+     * Starts something on top, after freeing what the background holds (such as a video
+     * decoder) and fading out the music.
+     */
     private void start(Intent intent) {
         background.suspend();
+        music.release(this, true);
         try {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (RuntimeException e) {
             background.resume();
+            music.hold(this);
         }
     }
 
@@ -715,6 +739,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         }
         tries.add(view);
         background.suspend();
+        music.release(this, true);
         for (Intent t : tries) {
             try {
                 startActivity(t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -723,6 +748,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             }
         }
         background.resume();
+        music.hold(this);
     }
 
     private static Intent launchIntent(PackageManager pm, String pkg) {

@@ -11,6 +11,7 @@ clock lifted and the apps below.
 ./undo.sh             # put the previous screensaver and home screen back, and uninstall
 BACKGROUND_FILE=~/other.webm ./install.sh     # another video (webm, mp4, mkv)
 BACKGROUND_FILE=~/picture.png ./install.sh    # a still image (png, jpg, webp)
+MUSIC_DIR= ./install.sh            # no music (default: the tracks in ./soundtrack)
 DEVICE=emulator-5554 ./install.sh  # the local Android TV emulator instead
 ```
 
@@ -27,6 +28,11 @@ signal bars, and shortcuts into the TV's settings (network with the Wi-Fi signal
 date and time, power, inputs, about, all settings; pages a TV doesn't have are left out). Up and
 down pick an entry, OK opens it, BACK or Zurück closes the menu. The world video keeps playing
 behind, dimmed. The texts are German on a German TV and English otherwise (`res/values-de`).
+
+**Music:** on the screensaver and the home screen, the tracks in `soundtrack/` (mp3, ogg or m4a;
+not in git) play in random order like the game's title-screen music: none twice before all have
+played, 1 to 30 seconds between them. The music carries on from the screensaver to the home
+screen, fades out when an app or an input starts, and never plays over another app's audio.
 
 ## Design rule: the background is swappable
 
