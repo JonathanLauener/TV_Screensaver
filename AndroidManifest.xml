@@ -7,6 +7,9 @@
 
     <!-- The home screen keeps the screen on in its idle mode, instead of the system screensaver. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The settings menu shows whether the TV is online, and the Wi-Fi signal. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Android 11+ only shows a home screen the apps it asks for. -->
     <queries>
@@ -22,6 +25,15 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="android.media.tv" />
         </intent>
+        <!-- The settings menu's pages (SettingsMenu, InputsMenu). -->
+        <intent><action android:name="android.settings.SETTINGS" /></intent>
+        <intent><action android:name="android.settings.WIFI_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.SOUND_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.MANAGE_APPLICATIONS_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.DATE_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.DEVICE_INFO_SETTINGS" /></intent>
+        <intent><action android:name="com.sony.dtv.settings.intent.action.SPEAKERS_SETTINGS" /></intent>
+        <package android:name="com.android.tv.settings" />
     </queries>
 
     <application
@@ -53,7 +65,7 @@
             android:clearTaskOnLaunch="true"
             android:excludeFromRecents="true"
             android:screenOrientation="landscape"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode|locale|density|fontScale">
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode|locale|layoutDirection|density|fontScale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

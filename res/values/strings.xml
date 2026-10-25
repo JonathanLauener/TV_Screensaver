@@ -3,4 +3,44 @@
     <string name="app_name">Minecraft Clock</string>
     <string name="dream_name">Minecraft Clock</string>
     <string name="home_name">Minecraft Home</string>
+
+    <!-- The home screen's buttons. The pixel font has A-Z, a-z, digits, common punctuation
+         and the Latin-1 accented letters. -->
+    <string name="inputs">Input</string>
+    <string name="settings">Settings</string>
+
+    <!-- Both menus (they look like Minecraft's multiplayer server list). -->
+    <string name="refresh">Refresh</string>
+    <string name="back">Back</string>
+
+    <!-- The input menu. -->
+    <string name="inputs_open">Switch to input</string>
+    <string name="inputs_edit">Edit inputs</string>
+    <string name="inputs_none">No inputs found</string>
+    <string name="input_ready">Ready</string>
+    <string name="input_no_signal">No signal</string>
+    <string name="input_disconnected">Nothing connected</string>
+
+    <!-- The settings menu. -->
+    <string name="settings_open">Open</string>
+    <string name="settings_none">No settings pages found</string>
+    <string name="settings_all">All settings</string>
+    <string name="settings_all_info">Everything the TV can set up</string>
+    <string name="settings_network">Network</string>
+    <string name="settings_network_wifi">Wi-Fi: connected</string>
+    <string name="settings_network_ethernet">Ethernet: connected</string>
+    <string name="settings_network_other">Connected</string>
+    <string name="settings_network_none">Not connected</string>
+    <string name="settings_sound">Sound</string>
+    <string name="settings_sound_info">System sounds</string>
+    <string name="settings_sound_speakers">TV speakers or audio system</string>
+    <string name="settings_apps">Apps</string>
+    <string name="settings_apps_info">Installed apps, storage and permissions</string>
+    <string name="settings_date">Date &amp; time</string>
+    <string name="settings_power">Power</string>
+    <string name="settings_power_info">Eco settings and power saving</string>
+    <string name="settings_inputs">Inputs</string>
+    <string name="settings_inputs_info">Rename or hide the HDMI inputs</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_info">%1$s, Android %2$s</string>
 </resources>
