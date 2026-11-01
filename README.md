@@ -12,6 +12,7 @@ clock lifted and the apps below.
 BACKGROUND_FILE=~/other.webm ./install.sh     # another video (webm, mp4, mkv)
 BACKGROUND_FILE=~/picture.png ./install.sh    # a still image (png, jpg, webp)
 MUSIC_DIR= ./install.sh            # no music (default: the tracks in ./soundtrack)
+SOUNDS_DIR= ./install.sh           # no menu sound (default: ./sounds/click.ogg)
 DEVICE=emulator-5554 ./install.sh  # the local Android TV emulator instead
 ```
 
@@ -33,6 +34,13 @@ behind, dimmed. The texts are German on a German TV and English otherwise (`res/
 not in git) play in random order like the game's title-screen music: none twice before all have
 played, 1 to 30 seconds between them. The music carries on from the screensaver to the home
 screen, fades out when an app or an input starts, and never plays over another app's audio.
+
+**Menu sounds:** the home screen and its menus play Minecraft's button click instead of the TV's
+system sounds. `./fetch-sounds.sh` downloads it from Mojang's asset server to `sounds/click.ogg`
+(not in git), and the build warns and leaves it out if it isn't there. OK on a button or an entry
+clicks at the game's volume (0.25). The game has no sound for moving, so moving the focus or the
+selection plays the same click quieter (0.12). BACK stays silent as in the game, and so does a
+key that wakes the home screen from idle mode. All of it follows the TV's "Systemtöne" setting.
 
 ## Design rule: the background is swappable
 

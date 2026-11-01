@@ -3,7 +3,7 @@
 Read this first when picking the project up in a fresh session. Keep it current: update it
 after every meaningful step (what changed, what was verified, what's next).
 
-_Last updated: 2026-10-25 19:45_
+_Last updated: 2026-11-01_
 
 ## Goal
 
@@ -65,7 +65,7 @@ looping seamlessly, with the time in Minecraft's font on top.
     as k x k squares, k = 18 px at 1080p, #3F3F3F shadow one block right and down, Latin
     digits always, 24 h per system setting, burn-in drift of half a block per minute.
 - Not in git: `keystore/` (signing key, keep it or updates won't install over the old
-  version), `.previous/`, `build/`, APKs, and the video.
+  version), `.previous/`, `build/`, APKs, the video, `soundtrack/` and `sounds/`.
 
 ## Verified facts (don't re-derive)
 
@@ -202,3 +202,33 @@ list, scrolling, BACK, idle mode from a menu. Another session (hianime-tv) asked
    surface go; HOME in that screensaver then fades in from black instead of sliding seamlessly.
    TV logging: the main buffer rolls over within ~90 s, stream `logcat -s McClock` to a file.
    In Claude's bash, `grep` is a wrapper that can return nothing: use `command grep`.
+5. Menu sounds (2026-11-01; verified on the API 28 emulator, installed on the TV and confirmed
+   working there by the user): Minecraft's
+   click (ui.button.click, `random/click_stereo.ogg`, the game's only menu sound) replaces the
+   system's. `./fetch-sounds.sh` downloads it to `sounds/click.ogg` and checks the sha1 (Mojang's:
+   in .gitignore, never commit it). build.sh bundles it uncompressed as assets/sounds/click.ogg
+   (`SOUNDS_DIR`, empty = none; the default missing only warns). `Sounds` (process singleton, a
+   SoundPool never released, loaded in HomeActivity.onCreate): click() at 0.25, the game's UI
+   volume; move() the same sample at 0.12, since a remote needs the feedback. Usage is
+   ASSISTANCE_SONIFICATION, not MEDIA, and no focus, because Music skips a track while
+   isMusicActive(). Plays only if Settings.System.SOUND_EFFECTS_ENABLED != 0 ("Systemtöne"), read
+   at play time.
+   Wiring: McButton, AppTile and EntryList override playSoundEffect (performClick calls it), so
+   nothing reaches the system. Focus moves: the system's tick comes from
+   ViewRootImpl.performFocusNavigation via AudioManager, which setSoundEffectsEnabled can't stop,
+   so HomeActivity.moveFocus does the same steps after super.dispatchKeyEvent returned false and
+   consumes the key; no focus or nowhere to go returns false, the system behaves as before.
+   EntryList.select plays move(). BACK and keys that wake from idle stay silent.
+   Verified on the emulator (mcclock_tv28): `dumpsys audio`'s "playback activity" log has a
+   `piid:N state:started` line per SoundPool play, so sounds can be counted per process. The
+   system's own player (uid 1000) fired on each key in Android's Settings (the control) and 0 times
+   in our home and menus. Ours fired once per real move or click, and 0 times at row ends, list
+   ends, on BACK, and on the key that wakes idle mode. Same focus moves as the old build after a
+   fresh boot.
+   Test trap: with screen_off_timeout at 10 s the home goes idle between test keys, and the next
+   key is then a silent wake key; that looks like a lost press. Idle mode also needs
+   screensaver_activate_on_sleep=1, which the emulator has at 0. Restore both after a test.
+   Not measured: whether a click can delay the music (isMusicActive should stay false, worked out
+   from the usage only).
+   Installing while the home screen is in front ends it, and the TV drops to the app below it (a
+   paused Netflix, on 2026-11-01); HOME brings it back. Install while nobody is using the TV.

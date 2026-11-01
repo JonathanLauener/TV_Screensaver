@@ -5,7 +5,7 @@
 #   DEVICE=emulator-5554 ./install.sh --now
 set -euo pipefail
 # Relative paths given by the caller are relative to where it was run from.
-for v in BACKGROUND_FILE VIDEO MUSIC_DIR; do
+for v in BACKGROUND_FILE VIDEO MUSIC_DIR SOUNDS_DIR; do
   if [[ -n "${!v:-}" && "${!v}" != /* ]]; then export "$v=$PWD/${!v}"; fi
 done
 cd "$(dirname "$0")"

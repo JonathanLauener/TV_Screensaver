@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Build;
+import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
@@ -41,6 +42,12 @@ final class AppTile extends View {
         if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
         setPivotX(bannerW / 2f);
         setPivotY(bannerH / 2f);
+    }
+
+    /** performClick asks for this: our click instead of the system's. */
+    @Override
+    public void playSoundEffect(int sound) {
+        if (sound == SoundEffectConstants.CLICK) Sounds.get(getContext()).click();
     }
 
     /** Banner, gap, then room for one line of caption and its shadow. */

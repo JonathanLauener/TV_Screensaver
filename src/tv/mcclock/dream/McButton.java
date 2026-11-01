@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Build;
+import android.view.SoundEffectConstants;
 import android.view.View;
 
 /**
@@ -45,6 +46,12 @@ final class McButton extends View {
         setClickable(true);
         // Android 8+ would wash a focused view with a translucent highlight: we draw our own.
         if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
+    }
+
+    /** performClick asks for this: our click instead of the system's. */
+    @Override
+    public void playSoundEffect(int sound) {
+        if (sound == SoundEffectConstants.CLICK) Sounds.get(getContext()).click();
     }
 
     /** Disabled buttons can't take the focus, as in the game they can't be hovered. */

@@ -11,6 +11,7 @@ import android.graphics.Shader;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -359,6 +360,12 @@ final class McMenu extends FrameLayout {
             if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
         }
 
+        /** performClick asks for this: our click instead of the system's. */
+        @Override
+        public void playSoundEffect(int sound) {
+            if (sound == SoundEffectConstants.CLICK) Sounds.get(getContext()).click();
+        }
+
         /**
          * New entries, selecting the one with this key. Otherwise the selection stays at the
          * same place, or for a menu just opened (fresh) it starts at the top.
@@ -439,6 +446,7 @@ final class McMenu extends FrameLayout {
             selected = index;
             ensureVisible();
             invalidate();
+            Sounds.get(getContext()).move();
         }
 
         @Override

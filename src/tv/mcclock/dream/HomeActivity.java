@@ -12,6 +12,7 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
@@ -101,6 +102,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
     private PowerManager.WakeLock screenLock;
     private Background background;
     private Music music;
+    private Sounds sounds;
     private View cover, shade;
     private PixelClockView clock;
     private LinearLayout panel, tiles, buttonsRow;
@@ -135,6 +137,7 @@ public final class HomeActivity extends Activity implements Background.Host, Han
         background = Backgrounds.get(this);
         root.addView(background.createView(this, this), match, match);
         music = Music.get(this);
+        sounds = Sounds.get(this);  // loads the sample now, so the first press isn't silent
 
         // Darkens the bottom a little behind the apps, so names and buttons stay readable.
         shade = new View(this);
@@ -404,7 +407,50 @@ public final class HomeActivity extends Activity implements Background.Host, Han
             return true;
         }
         restartIdle();
-        return super.dispatchKeyEvent(event);
+        return super.dispatchKeyEvent(event) || moveFocus(event);
+    }
+
+    /**
+     * A D-pad key nobody took: moves the focus with our sound. Android would do this itself right
+     * after us (ViewRootImpl.performFocusNavigation), but with its own tick, which no view setting
+     * turns off; the key has to be used up here to keep that from happening. So this does the same
+     * steps. When it returns false (no focus at all, or nowhere to go) the system carries on as
+     * ever: it restores the default focus, or nothing moves and nothing sounds.
+     */
+    private boolean moveFocus(KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN || !event.hasNoModifiers()) return false;
+        int direction;
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                direction = View.FOCUS_LEFT;
+                break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                direction = View.FOCUS_RIGHT;
+                break;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                direction = View.FOCUS_UP;
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                direction = View.FOCUS_DOWN;
+                break;
+            default:
+                return false;
+        }
+        View decor = getWindow().getDecorView();
+        View focused = decor.findFocus();
+        if (focused == null) return false;
+        View next = focused.focusSearch(direction);
+        if (next == null || next == focused) return false;
+        // The focused view's rect in the next one's coordinates, as the system passes it.
+        Rect rect = new Rect();
+        focused.getFocusedRect(rect);
+        if (decor instanceof ViewGroup) {
+            ((ViewGroup) decor).offsetDescendantRectToMyCoords(focused, rect);
+            ((ViewGroup) decor).offsetRectIntoDescendantCoords(next, rect);
+        }
+        if (!next.requestFocus(direction, rect)) return false;
+        sounds.move();
+        return true;
     }
 
     private void restartIdle() {

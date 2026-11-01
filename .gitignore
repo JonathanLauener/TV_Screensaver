@@ -15,3 +15,7 @@ keystore/
 # The music is bundled at build time from soundtrack/ (see build.sh). It's C418's, so it stays
 # out of the repository.
 soundtrack/
+
+# The menu sound is bundled at build time from sounds/ (see fetch-sounds.sh and build.sh). It's
+# Mojang's, so it stays out of the repository.
+sounds/

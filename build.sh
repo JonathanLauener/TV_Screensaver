@@ -6,9 +6,11 @@
 # VIDEO=... works too, as another name for BACKGROUND_FILE.
 # The music played on the screensaver and home screen comes from ./soundtrack (mp3, ogg, m4a);
 #   MUSIC_DIR=/other/folder ./build.sh   from elsewhere,  MUSIC_DIR= ./build.sh   none.
+# The menu sound is ./sounds/click.ogg (from ./fetch-sounds.sh);
+#   SOUNDS_DIR=/other/folder ./build.sh  from elsewhere,  SOUNDS_DIR= ./build.sh  none.
 set -euo pipefail
 # Relative paths given by the caller are relative to where it was run from.
-for v in BACKGROUND_FILE VIDEO MUSIC_DIR; do
+for v in BACKGROUND_FILE VIDEO MUSIC_DIR SOUNDS_DIR; do
   if [[ -n "${!v:-}" && "${!v}" != /* ]]; then export "$v=$PWD/${!v}"; fi
 done
 cd "$(dirname "$0")"
@@ -19,6 +21,7 @@ MIN_SDK=24          # the target TV runs Android 9 (API 28)
 TARGET_SDK=34
 BACKGROUND_FILE=${BACKGROUND_FILE:-${VIDEO:-$HOME/screensaver.webm}}
 MUSIC_DIR=${MUSIC_DIR-soundtrack}
+SOUNDS_DIR=${SOUNDS_DIR-sounds}
 APK=MinecraftClock.apk
 
 ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
@@ -36,6 +39,15 @@ if [[ -n "$MUSIC_DIR" && ! -d "$MUSIC_DIR" ]]; then
     MUSIC_DIR=
   else
     echo "Music folder not found: $MUSIC_DIR (MUSIC_DIR= builds without music)" >&2
+    exit 1
+  fi
+fi
+if [[ -n "$SOUNDS_DIR" && ! -f "$SOUNDS_DIR/click.ogg" ]]; then
+  if [[ "$SOUNDS_DIR" == sounds ]]; then
+    echo "warning: no sounds/click.ogg: building without menu sounds (run ./fetch-sounds.sh)" >&2
+    SOUNDS_DIR=
+  else
+    echo "Menu sound not found: $SOUNDS_DIR/click.ogg (SOUNDS_DIR= builds without)" >&2
     exit 1
   fi
 fi
@@ -78,8 +90,14 @@ if [[ -n "$MUSIC_DIR" && -d "$MUSIC_DIR" ]]; then
   done < <(find "$MUSIC_DIR" -maxdepth 1 -type f \( -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' \) -print0 | sort -z)
   echo "      $n music tracks from $MUSIC_DIR"
 fi
+rm -rf "$OUT/assets/sounds"
+if [[ -n "$SOUNDS_DIR" ]]; then
+  mkdir -p "$OUT/assets/sounds"
+  cp "$SOUNDS_DIR/click.ogg" "$OUT/assets/sounds/click.ogg"
+  echo "      menu sound from $SOUNDS_DIR"
+fi
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
-# Videos and music stay uncompressed so they can be read straight out of the APK.
+# Videos, music and the menu sound stay uncompressed so they can be read straight out of the APK.
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest AndroidManifest.xml -A "$OUT/assets" \
   -0 webm -0 mkv -0 mp4 -0 mp3 -0 ogg -0 m4a --java "$OUT/gen" --min-sdk-version $MIN_SDK --target-sdk-version $TARGET_SDK \
   --version-code $VERSION_CODE --version-name $VERSION_NAME "$OUT/res.zip"
@@ -116,4 +134,5 @@ echo "[6/6] verify"
 "$BT/apksigner" verify --min-sdk-version $MIN_SDK "$APK"
 unzip -v "$APK" | grep -E 'assets/background\.'
 echo "music tracks: $(unzip -l "$APK" | grep -c 'assets/music/')"
+unzip -v "$APK" | grep 'assets/sounds/' || echo "menu sounds: none"
 ls -lh "$APK"
